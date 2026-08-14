@@ -1,0 +1,19 @@
+{
+  "case_id": "CASE-GOLDEN-001",
+  "case_type": "HOTEL_SUPPLY_EXCEPTION",
+  "customer_id": "C001",
+  "order_id": "H-C001-001",
+  "original_confirmation_number": "CONF-C001-001",
+  "rebooking_confirmation_number": "RBK-GOLDEN-001",
+  "diagnosis": "Original hotel supply exception detected during Phase 2 investigation",
+  "action": "Autonomous rebooking to replacement hotel with customer confirmation",
+  "replacement_hotel_id": "HTL-SHA-HARBOR",
+  "replacement_hotel_name": "上海虹桥海湾臻选酒店",
+  "price_difference_cny": 180,
+  "resolution_mode": "AUTONOMOUS",
+  "verification_status": "PASSED",
+  "resolution_plan_id": "PLAN-GOLDEN-001",
+  "risk_decision_id": "RISK-PLAN-GOLDEN-001",
+  "idempotency_key": "CASE-GOLDEN-001-REBOOK",
+  "verification_timestamp": "2026-08-12T15:05:00Z"
+}

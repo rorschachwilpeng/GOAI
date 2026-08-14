@@ -1,0 +1,28 @@
+# macOS
+.DS_Store
+
+# Local agent/tool state
+.superpowers/
+tmp/
+
+# Python caches and local environments
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+
+# JavaScript dependencies and generated builds
+node_modules/
+dist/
+
+# Local secrets and environment overrides
+.env
+.env.*
+*.pem
+*.key
+
+# Runtime logs and editor state
+*.log
+.idea/
+.vscode/

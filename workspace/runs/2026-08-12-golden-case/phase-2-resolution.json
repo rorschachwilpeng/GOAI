@@ -1,0 +1,43 @@
+{
+  "task_id": "task-20260812-142155",
+  "resolution_plan": {
+    "resolution_plan_id": "PLAN-GOLDEN-001",
+    "order_ref": "oref_29b6d09964387d23",
+    "order_id": "H-C001-001",
+    "action": "REBOOK",
+    "diagnosis": "原酒店确认无法履约",
+    "evidence_ids": ["SUP-EX-001"],
+    "replacement_hotel_id": "HTL-SHA-HARBOR",
+    "replacement_hotel_name": "上海虹桥海湾臻选酒店",
+    "check_in_date": "2026-08-15",
+    "check_out_date": "2026-08-17",
+    "price_difference_cny": 180,
+    "previous_confirmation_number": "CONF-C001-001",
+    "expected_current_status": "CONFIRMED",
+    "expected_target_status": "REBOOKED"
+  },
+  "risk_decision": {
+    "risk_decision_id": "RISK-PLAN-GOLDEN-001",
+    "decision": "REQUIRE_CUSTOMER_CONFIRMATION",
+    "rule_version": "rebooking-v0.1",
+    "reason_code": "PRICE_DIFF_WITHIN_300",
+    "required_controls": ["CUSTOMER_CONFIRMATION"],
+    "valid": true
+  },
+  "customer_confirmation": {
+    "confirmation_id": "CONFIRM-CASE-GOLDEN-001-MSG-GOLDEN-CONFIRM-001",
+    "message_event_id": "MSG-GOLDEN-CONFIRM-001",
+    "confirmed": true
+  },
+  "authorization": {
+    "authorized": true,
+    "risk_decision_id": "RISK-PLAN-GOLDEN-001"
+  },
+  "execution": {
+    "execution_id": "EXEC-CASE-GOLDEN-001",
+    "reported_status": "SUCCESS",
+    "confirmation_number": "RBK-GOLDEN-001",
+    "idempotency_key": "CASE-GOLDEN-001-REBOOK",
+    "idempotent_replay": false
+  }
+}
