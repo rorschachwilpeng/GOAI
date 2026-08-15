@@ -34,4 +34,4 @@ spec.md → 用户确认 → plan.md → 用户确认 → tasks.md → 实现 �
 
 | 编号 | 功能 | 状态 | 入口 |
 |---|---|---|---|
-| 001 | 酒店供应异常自主改订最小闭环 | Spec Approved；Plan Approved；Tasks Ready | [`spec.md`](./001-autonomous-customer-service-loop/spec.md) · [`plan.md`](./001-autonomous-customer-service-loop/plan.md) · [`tasks.md`](./001-autonomous-customer-service-loop/tasks.md) |
+| 001 | 酒店供应异常自主改订最小闭环 | Linked Journey Spec / Plan Draft；Tasks 已同步，待用户确认后执行 | [`spec.md`](./001-autonomous-customer-service-loop/spec.md) · [`plan.md`](./001-autonomous-customer-service-loop/plan.md) · [`tasks.md`](./001-autonomous-customer-service-loop/tasks.md) |
