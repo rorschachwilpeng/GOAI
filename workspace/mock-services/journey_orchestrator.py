@@ -39,7 +39,6 @@ class JourneyOrchestrator:
             }
         )
         return {"case": case, "matrix_event_id": matrix_event_id}
-
     def simulate_customer_confirmation_timeout(
         self,
         occurred_at: str,
@@ -61,4 +60,3 @@ class JourneyOrchestrator:
             }
         )
         return {"case": case, "matrix_event_id": matrix_event_id}
-
