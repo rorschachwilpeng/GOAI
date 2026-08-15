@@ -19,8 +19,10 @@ from golden_path import (  # noqa: E402
     get_authorized_order,
     get_order_state,
     load_fixture,
+    record_internal_decision,
     record_customer_confirmation,
     resolve_order_reference,
+    validate_execution_authorization,
     verify_rebooking,
 )
 from run_golden_path import run_golden_path  # noqa: E402
@@ -75,6 +77,7 @@ class GoldenPathTest(unittest.TestCase):
             self.assertEqual(result["replacement_hotel_id"], "HTL-SHA-HARBOR")
             self.assertEqual(result["price_difference_cny"], 180)
             self.assertEqual(result["verification_status"], "PASSED")
+            self.assertTrue(result["verification_package_hash_valid"])
             self.assertEqual(result["internal_human_interventions"], 0)
 
             trace_path = Path(output_dir) / "golden-trace.jsonl"
@@ -90,17 +93,29 @@ class GoldenPathTest(unittest.TestCase):
                 "ORDER_MATCH_MULTIPLE",
                 "CUSTOMER_INFO_REQUESTED",
                 "ORDER_MATCH_UNIQUE",
+                "ORDER_LINKED_HANDOFF",
                 "RISK_EVALUATED",
+                "RESOLUTION_PLAN_HANDOFF",
                 "CUSTOMER_CONFIRMATION_RECORDED",
                 "EXECUTION_AUTHORIZED",
                 "REBOOKING_EXECUTED",
                 "ORDER_STATE_READ",
+                "VERIFICATION_PACKAGE_FROZEN",
                 "VERIFICATION_PASSED",
+                "VERIFICATION_PACKAGE_VERIFIED",
                 "CUSTOMER_NOTIFIED",
                 "CASE_RESOLVED",
                 "CASE_CARD_WRITTEN",
             ):
                 self.assertIn(required_event, event_types)
+
+            actors_by_event = {event["event_type"]: event["actor"] for event in events}
+            self.assertEqual(actors_by_event["ORDER_LINKED_HANDOFF"], "Frontline Agent")
+            self.assertEqual(actors_by_event["RESOLUTION_PLAN_HANDOFF"], "Resolution Agent")
+            self.assertEqual(actors_by_event["VERIFICATION_PACKAGE_FROZEN"], "Manager Agent")
+            self.assertEqual(actors_by_event["VERIFICATION_PACKAGE_VERIFIED"], "Verification Agent")
+            self.assertEqual(actors_by_event["CUSTOMER_NOTIFIED"], "Frontline Agent")
+            self.assertEqual(actors_by_event["CASE_RESOLVED"], "Manager Agent")
 
     def test_multiple_match_does_not_expose_candidate_details(self):
         result = resolve_order_reference(self.store, self.customer_id, {})
@@ -192,9 +207,108 @@ class GoldenPathTest(unittest.TestCase):
                 risk["risk_decision_id"],
                 "NEEDS-APPROVAL",
             )
-        self.assertEqual(error.exception.code, "INTERNAL_APPROVAL_REQUIRED")
+        self.assertEqual(error.exception.code, "HIGH_RISK_EXECUTION_NOT_ENABLED")
         order = get_order_state(self.store, self.customer_id, plan["order_ref"])
         self.assertEqual(order["status"], "CONFIRMED")
+
+    def test_approved_internal_decision_is_bound_but_does_not_enable_execution(self):
+        plan, risk = self.prepare_plan_and_risk(800)
+        decision = record_internal_decision(
+            self.store,
+            self.case_id,
+            plan["resolution_plan_id"],
+            risk["risk_decision_id"],
+            "APPROVE",
+            "MSG-OPS-APPROVE",
+            "hotel-operations-001",
+        )
+        self.assertEqual(decision["decision"], "APPROVE")
+        self.assertEqual(decision["case_id"], self.case_id)
+        self.assertTrue(decision["recorded_at"])
+        self.assertEqual(
+            validate_execution_authorization(
+                self.store,
+                self.case_id,
+                plan["resolution_plan_id"],
+                risk["risk_decision_id"],
+            ),
+            {
+                "authorized": True,
+                "execution_enabled": False,
+                "risk_decision_id": risk["risk_decision_id"],
+            },
+        )
+        with self.assertRaises(ToolError) as error:
+            execute_rebooking(
+                self.store,
+                self.case_id,
+                plan["resolution_plan_id"],
+                risk["risk_decision_id"],
+                "HIGH-RISK-APPROVE",
+            )
+        self.assertEqual(error.exception.code, "HIGH_RISK_EXECUTION_NOT_ENABLED")
+        self.assertEqual(
+            get_order_state(self.store, self.customer_id, plan["order_ref"])["status"],
+            "CONFIRMED",
+        )
+
+    def test_rejected_internal_decision_blocks_authorization_and_conflicts_on_change(self):
+        plan, risk = self.prepare_plan_and_risk(800)
+        decision = record_internal_decision(
+            self.store,
+            self.case_id,
+            plan["resolution_plan_id"],
+            risk["risk_decision_id"],
+            "REJECT",
+            "MSG-OPS-REJECT",
+            "hotel-operations-001",
+        )
+        self.assertEqual(decision["decision"], "REJECT")
+        with self.assertRaises(ToolError) as error:
+            validate_execution_authorization(
+                self.store,
+                self.case_id,
+                plan["resolution_plan_id"],
+                risk["risk_decision_id"],
+            )
+        self.assertEqual(error.exception.code, "INTERNAL_APPROVAL_REJECTED")
+        with self.assertRaises(ToolError) as error:
+            record_internal_decision(
+                self.store,
+                self.case_id,
+                plan["resolution_plan_id"],
+                risk["risk_decision_id"],
+                "APPROVE",
+                "MSG-OPS-APPROVE",
+                "hotel-operations-001",
+            )
+        self.assertEqual(error.exception.code, "INTERNAL_DECISION_CONFLICT")
+
+    def test_internal_decision_rejects_invalid_decision_and_context(self):
+        plan, risk = self.prepare_plan_and_risk(800)
+        with self.assertRaises(ToolError) as error:
+            record_internal_decision(
+                self.store,
+                self.case_id,
+                plan["resolution_plan_id"],
+                risk["risk_decision_id"],
+                "ESCALATE",
+                "MSG-OPS-INVALID",
+                "hotel-operations-001",
+            )
+        self.assertEqual(error.exception.code, "INVALID_INTERNAL_DECISION")
+        low_risk_plan, low_risk = self.prepare_plan_and_risk(180)
+        with self.assertRaises(ToolError) as error:
+            record_internal_decision(
+                self.store,
+                self.case_id,
+                low_risk_plan["resolution_plan_id"],
+                low_risk["risk_decision_id"],
+                "APPROVE",
+                "MSG-OPS-LOW-RISK",
+                "hotel-operations-001",
+            )
+        self.assertEqual(error.exception.code, "INTERNAL_DECISION_CONTEXT_INVALID")
 
     def test_false_success_is_caught_by_independent_verification(self):
         plan, risk = self.prepare_plan_and_risk()

@@ -21,7 +21,7 @@
 |---|---|---|
 | Frontline | `resolve_order_reference`、`record_customer_confirmation` | Tool 已实现；Surface 待实现 |
 | Resolution | `get_authorized_order`、`evaluate_rebooking`、`validate_execution_authorization`、`execute_rebooking` | Tool 已实现；Surface 待实现 |
-| Resolution | `record_internal_decision` | 方案设计，待实现 |
+| Resolution | `record_internal_decision` | 已实现，Mock |
 | Verification | `get_order_state`、`verify_rebooking` | Tool 已实现；Surface 待实现 |
 | Manager | 无业务 Tool | 方案设计 |
 
@@ -128,7 +128,7 @@
 
 `decision` 仅允许 `REQUIRE_CUSTOMER_CONFIRMATION | REQUIRE_INTERNAL_APPROVAL | DENY`。主要错误：`ORDER_ACCESS_DENIED`、`ORDER_PLAN_MISMATCH`。
 
-### `record_internal_decision`（方案设计，待实现）
+### `record_internal_decision`（已实现，Mock）
 
 请求固定为：
 
@@ -146,7 +146,7 @@
 }
 ```
 
-计划响应：
+响应：
 
 ```json
 {
@@ -161,7 +161,7 @@
 }
 ```
 
-约束：决定必须绑定 Case、方案、风险决定、运营人员和消息事件。`APPROVE` 可使授权判断通过，但 V0.1 不继续执行高风险改订；`REJECT` 必须使授权判断拒绝。计划错误：`INTERNAL_DECISION_CONTEXT_INVALID`、`INVALID_INTERNAL_DECISION`、`INTERNAL_DECISION_CONFLICT`。
+约束：决定必须绑定 Case、方案、风险决定、运营人员和消息事件。`APPROVE` 可使授权判断通过，但返回 `execution_enabled=false`；V0.1 不继续执行高风险改订。`REJECT` 使授权判断返回 `INTERNAL_APPROVAL_REJECTED`。主要错误：`INTERNAL_DECISION_CONTEXT_INVALID`、`INVALID_INTERNAL_DECISION`、`INTERNAL_DECISION_CONFLICT`。
 
 ### `validate_execution_authorization`（已实现）
 
@@ -174,12 +174,12 @@
 成功响应：
 
 ```json
-{"authorized": true, "risk_decision_id": "string"}
+{"authorized": true, "execution_enabled": false, "risk_decision_id": "string"}
 ```
 
-执行前重新校验上下文、方案与风险绑定、订单前置状态和所需控制。当前 800 元分支返回 `INTERNAL_APPROVAL_REQUIRED`；待 `record_internal_decision` 实现后，`APPROVE` 才可使授权判断通过。
+执行前重新校验上下文、方案与风险绑定、订单前置状态和所需控制。800 元分支在未决定时返回 `INTERNAL_APPROVAL_REQUIRED`；有效 `APPROVE` 返回上方响应，有效 `REJECT` 返回 `INTERNAL_APPROVAL_REJECTED`。
 
-主要错误：`EXECUTION_CONTEXT_INVALID`、`ORDER_STATE_CONFLICT`、`CUSTOMER_CONFIRMATION_REQUIRED`、`INTERNAL_APPROVAL_REQUIRED`、`EXECUTION_DENIED`。
+主要错误：`EXECUTION_CONTEXT_INVALID`、`ORDER_STATE_CONFLICT`、`CUSTOMER_CONFIRMATION_REQUIRED`、`INTERNAL_APPROVAL_REQUIRED`、`INTERNAL_APPROVAL_REJECTED`、`EXECUTION_DENIED`。
 
 ### `execute_rebooking`（已实现，Mock 写入）
 
@@ -194,7 +194,7 @@
 }
 ```
 
-响应字段：`execution_id`、`case_id`、`resolution_plan_id`、`risk_decision_id`、`order_id`、`reported_status`、`confirmation_number`、`idempotency_key`、`idempotent_replay`。
+响应字段：`execution_id`、`case_id`、`resolution_plan_id`、`risk_decision_id`、`order_id`、`reported_status`、`confirmation_number`、`idempotency_key`、`idempotent_replay`。高风险方案无论是否已经 `APPROVE`，均返回 `HIGH_RISK_EXECUTION_NOT_ENABLED`，并保持订单不变。
 
 同一幂等键的相同请求返回原记录并标记 `idempotent_replay=true`；不同绑定返回 `IDEMPOTENCY_KEY_CONFLICT`。
 

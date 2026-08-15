@@ -136,8 +136,8 @@ Planning Agent 只按证据验收。材料中的能力状态统一使用：`已�
 | --- | --- | --- | --- | --- |
 | 1 | Spec 与最新架构对齐 | Planning Agent | 已完成 | Spec 已于 2026-08-14 确认，需求与验收边界已收束 |
 | 2 | Plan 评审 | Planning Agent | 已完成 | Room、Agent、权限、状态机、数据模型和契约口径已于 2026-08-14 确认 |
-| 3 | 一 Case 一 Project Room 协作实现 | 执行 Agent | Tasks Ready，待派发 | Frontline 与 Resolution 在同一 Case Room 协作；Manager 管理状态与闸门；有真实消息和 Trace |
-| 4 | Golden Case 重跑与护栏取证 | 执行 Agent | 待分配 | 主链路和关键安全分支可复现，证据路径完整 |
+| 3 | 一 Case 一 Project Room 协作实现 | 执行 Agent | T004～T006 已验收 | Frontline 与 Resolution 在同一 Case Room 协作；Manager 管理状态与闸门；有真实消息和 Trace |
+| 4 | Golden Case 与关键分支取证 | 执行 Agent | T007～T009 已验收；T010、T011 待执行 | P1 主链路、P2 审批分支和 P3 恢复分支可复现；横切治理与最终证据矩阵待完成 |
 | 5 | 参赛材料与提交包 | Planning Agent 统筹，执行 Agent 制作 | 待分配 | 简介、PPT/PDF、Demo 证据和 ZIP 口径一致；外部提交另行获得用户授权 |
 
 里程碑不是正式 `tasks.md` 的替代品。执行范围、依赖和验收命令以已生成的 `tasks.md` 为准。

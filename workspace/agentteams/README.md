@@ -1,5 +1,9 @@
 # AgentTeams Golden Path 接入
 
+## T005 Project Room（本地运行时证据）
+
+`proj-goai-case-golden-001` 仅包含 `frontline,resolution` 两名业务 Worker；Verification 不加入 Case Project Room。运行证据见 `../runs/2026-08-14-project-room-migration/`。该能力使用本地 AgentTeams 与合成 Mock 服务，不代表生产环境部署。
+
 本目录保存 GOAI Mock API 接入 AgentTeams 所需的 Higress MCP 配置、3 个 Worker manifest 与重跑说明。`mcp-goai-order` 当前暴露 8 个受控 Tool，覆盖安全定位订单、风险评估、客户确认、执行与独立核验。
 
 > 以下注册命令会修改本机 AgentTeams/Higress 配置。当前本机环境已完成注册；重装或重建环境时再执行。

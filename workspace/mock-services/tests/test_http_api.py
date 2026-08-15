@@ -290,7 +290,78 @@ class HttpApiTest(unittest.TestCase):
             "/execute-rebooking",
         )
         self.assertEqual(status, 400)
-        self.assertEqual(response["error"]["code"], "INTERNAL_APPROVAL_REQUIRED")
+        self.assertEqual(response["error"]["code"], "HIGH_RISK_EXECUTION_NOT_ENABLED")
+
+    def test_approved_high_risk_decision_is_authorized_but_execution_stays_disabled(self):
+        plan, risk = self.prepare_rebooking(800)
+        status, decision = self.post_json(
+            {
+                "case_id": "CASE-HTTP-001",
+                "resolution_plan_id": plan["resolution_plan_id"],
+                "risk_decision_id": risk["risk_decision_id"],
+                "decision": "APPROVE",
+                "message_event_id": "MSG-OPS-APPROVE",
+                "operator_id": "hotel-operations-001",
+            },
+            "/record-internal-decision",
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(decision["decision"], "APPROVE")
+        self.assertTrue(decision["recorded_at"])
+        status, authorization = self.post_json(
+            {
+                "case_id": "CASE-HTTP-001",
+                "resolution_plan_id": plan["resolution_plan_id"],
+                "risk_decision_id": risk["risk_decision_id"],
+            },
+            "/validate-execution-authorization",
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(authorization["authorized"], True)
+        self.assertEqual(authorization["execution_enabled"], False)
+        status, response = self.post_json(
+            {
+                "case_id": "CASE-HTTP-001",
+                "resolution_plan_id": plan["resolution_plan_id"],
+                "risk_decision_id": risk["risk_decision_id"],
+                "idempotency_key": "HIGH-RISK-HTTP",
+            },
+            "/execute-rebooking",
+        )
+        self.assertEqual(status, 400)
+        self.assertEqual(response["error"]["code"], "HIGH_RISK_EXECUTION_NOT_ENABLED")
+        status, order = self.post_json(
+            {"customer_id": "C001", "order_ref": plan["order_ref"]},
+            "/get-order-state",
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(order["status"], "CONFIRMED")
+
+    def test_rejected_internal_decision_blocks_authorization(self):
+        plan, risk = self.prepare_rebooking(800)
+        status, decision = self.post_json(
+            {
+                "case_id": "CASE-HTTP-001",
+                "resolution_plan_id": plan["resolution_plan_id"],
+                "risk_decision_id": risk["risk_decision_id"],
+                "decision": "REJECT",
+                "message_event_id": "MSG-OPS-REJECT",
+                "operator_id": "hotel-operations-001",
+            },
+            "/record-internal-decision",
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(decision["decision"], "REJECT")
+        status, response = self.post_json(
+            {
+                "case_id": "CASE-HTTP-001",
+                "resolution_plan_id": plan["resolution_plan_id"],
+                "risk_decision_id": risk["risk_decision_id"],
+            },
+            "/validate-execution-authorization",
+        )
+        self.assertEqual(status, 400)
+        self.assertEqual(response["error"]["code"], "INTERNAL_APPROVAL_REJECTED")
 
     def test_idempotency_key_conflict_is_blocked(self):
         plan, risk = self.prepare_rebooking()

@@ -5,6 +5,7 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -50,6 +51,7 @@ def load_fixture(path: str | Path) -> dict[str, Any]:
     store["resolution_plans"] = {}
     store["risk_decisions"] = {}
     store["confirmations"] = {}
+    store["internal_decisions"] = {}
     store["execution_records"] = {}
     return store
 
@@ -239,6 +241,64 @@ def record_customer_confirmation(
     return copy.deepcopy(result)
 
 
+def record_internal_decision(
+    store: dict[str, Any],
+    case_id: str,
+    resolution_plan_id: str,
+    risk_decision_id: str,
+    decision: str,
+    message_event_id: str,
+    operator_id: str,
+    trace: TraceRecorder | None = None,
+) -> dict[str, Any]:
+    """Record one Operations Review decision for a bound high-risk plan."""
+
+    if decision not in {"APPROVE", "REJECT"}:
+        raise ToolError("INVALID_INTERNAL_DECISION", "decision must be APPROVE or REJECT")
+    case = store["cases"].get(case_id)
+    plan = store["resolution_plans"].get(resolution_plan_id)
+    risk = store["risk_decisions"].get(risk_decision_id)
+    if (
+        not case
+        or not plan
+        or not risk
+        or risk["resolution_plan_id"] != resolution_plan_id
+        or risk["decision"] != "REQUIRE_INTERNAL_APPROVAL"
+    ):
+        raise ToolError(
+            "INTERNAL_DECISION_CONTEXT_INVALID",
+            "Decision must bind an existing high-risk Case, plan, and risk decision",
+        )
+
+    key = f"{case_id}:{resolution_plan_id}:{risk_decision_id}"
+    requested = {
+        "case_id": case_id,
+        "resolution_plan_id": resolution_plan_id,
+        "risk_decision_id": risk_decision_id,
+        "decision": decision,
+        "message_event_id": message_event_id,
+        "operator_id": operator_id,
+    }
+    existing = store["internal_decisions"].get(key)
+    if existing:
+        if all(existing[field] == value for field, value in requested.items()):
+            return copy.deepcopy(existing)
+        raise ToolError(
+            "INTERNAL_DECISION_CONFLICT",
+            "A different decision is already recorded for this high-risk plan",
+        )
+
+    result = {
+        "internal_decision_id": f"INTERNAL-DECISION-{case_id}-{resolution_plan_id}",
+        **requested,
+        "recorded_at": datetime.now(timezone.utc).isoformat(),
+    }
+    store["internal_decisions"][key] = result
+    if trace:
+        trace.record("INTERNAL_DECISION_RECORDED", "record_internal_decision", result=result)
+    return copy.deepcopy(result)
+
+
 def validate_execution_authorization(
     store: dict[str, Any],
     case_id: str,
@@ -270,7 +330,20 @@ def validate_execution_authorization(
         if not confirmed:
             raise ToolError("CUSTOMER_CONFIRMATION_REQUIRED", "Customer confirmation is required")
     elif risk["decision"] == "REQUIRE_INTERNAL_APPROVAL":
-        raise ToolError("INTERNAL_APPROVAL_REQUIRED", "Internal approval is required")
+        key = f"{case_id}:{resolution_plan_id}:{risk_decision_id}"
+        internal_decision = store["internal_decisions"].get(key)
+        if not internal_decision:
+            raise ToolError("INTERNAL_APPROVAL_REQUIRED", "Internal approval is required")
+        if internal_decision["decision"] == "REJECT":
+            raise ToolError("INTERNAL_APPROVAL_REJECTED", "Internal approval rejected this plan")
+        result = {
+            "authorized": True,
+            "execution_enabled": False,
+            "risk_decision_id": risk_decision_id,
+        }
+        if trace:
+            trace.record("EXECUTION_AUTHORIZED", "validate_execution_authorization", result=result)
+        return result
     else:
         raise ToolError("EXECUTION_DENIED", "Risk policy denied execution")
 
@@ -305,6 +378,13 @@ def execute_rebooking(
         if trace:
             trace.record("REBOOKING_REPLAYED", "execute_rebooking", result=previous)
         return previous
+
+    risk = store["risk_decisions"].get(risk_decision_id)
+    if risk and risk["decision"] == "REQUIRE_INTERNAL_APPROVAL":
+        raise ToolError(
+            "HIGH_RISK_EXECUTION_NOT_ENABLED",
+            "High-risk execution is not enabled in V0.1",
+        )
 
     validate_execution_authorization(
         store,

@@ -1,0 +1,14 @@
+{
+  "background_tasks_active": false,
+  "case_id": "CASE-P3-001",
+  "case_state": "IDENTIFYING_ORDER",
+  "created_at": "2026-08-14T09:00:00+08:00",
+  "customer_id": "C001",
+  "project_id": "proj-goai-case-p3-001",
+  "project_room_id": "!p3-case-001:matrix-local.agentteams.io:18080",
+  "reopened_count": 1,
+  "reply_deadline_at": null,
+  "resolution_mode": null,
+  "updated_at": "2026-08-15T09:02:05+08:00",
+  "matrix_arrival_at": "2026-08-15T09:02:01+08:00"
+}

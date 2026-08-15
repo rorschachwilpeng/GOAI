@@ -1,0 +1,10 @@
+{
+  "case_id": "CASE-GOLDEN-002",
+  "run_id": "T006-RUN-003",
+  "verification_status": "PASSED",
+  "sender": "@verification:matrix-local.agentteams.io:18080",
+  "package_hash_validated_by": "T003 verify_package_hash",
+  "read_only_tools": ["get_order_state", "verify_rebooking"],
+  "checks": {"status_rebooked": true, "customer_ownership_unchanged": true, "replacement_hotel_matches": true, "stay_dates_match": true, "confirmation_exists": true, "idempotency_key_matches": true, "price_difference_matches": true},
+  "differences": []
+}

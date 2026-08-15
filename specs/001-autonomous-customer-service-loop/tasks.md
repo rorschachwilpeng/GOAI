@@ -30,7 +30,7 @@
 
 ## Phase 1：基线与公共基础
 
-### - [ ] T001 冻结当前基线与回滚参照
+### - [x] T001 冻结当前基线与回滚参照
 
 **Depends on:** 无  
 **Owner:** 执行 Agent  
@@ -59,7 +59,7 @@ PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover \
 
 ---
 
-### - [ ] T002 [P] 建立三个角色化 MCP Surface
+### - [x] T002 [P] 建立三个角色化 MCP Surface
 
 **Depends on:** T001  
 **Owner:** 执行 Agent  
@@ -97,7 +97,7 @@ PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover \
 
 ---
 
-### - [ ] T003 [P] 实现 Case 状态控制与 Verification Package 冻结
+### - [x] T003 [P] 实现 Case 状态控制与 Verification Package 冻结
 
 **Depends on:** T001  
 **Owner:** 执行 Agent  
@@ -142,7 +142,7 @@ PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover \
 
 ## Phase 2：User Story 1 — 客户自主解决酒店供应异常（P1）
 
-### - [ ] T004 [US1] 迁移 Agent Identity、Skill 与最小权限配置
+### - [x] T004 [US1] 迁移 Agent Identity、Skill 与最小权限配置
 
 **Depends on:** T002  
 **Owner:** 执行 Agent  
@@ -176,7 +176,7 @@ rg -n 'mcp-goai-(frontline|resolution|verification)' \
 
 ---
 
-### - [ ] T005 [US1] 创建“一 Case 一 Project Room”协作实例
+### - [x] T005 [US1] 创建“一 Case 一 Project Room”协作实例
 
 **Depends on:** T003、T004  
 **Owner:** 执行 Agent  
@@ -212,7 +212,7 @@ bash /opt/agentteams/agent/skills/project-management/scripts/create-project.sh \
 
 ---
 
-### - [ ] T006 [US1] 跑通 Project Room Golden Journey 与独立核验
+### - [x] T006 [US1] 跑通 Project Room Golden Journey 与独立核验
 
 **Depends on:** T003、T005  
 **Owner:** 执行 Agent  
@@ -254,7 +254,7 @@ jq -e '.case_state == "RESOLVED" and
 
 ## Phase 3：User Story 2 — 内部运营人员处理高风险方案（P2）
 
-### - [ ] T007 [P] [US2] 实现内部决定记录与高风险执行硬阻断
+### - [x] T007 [P] [US2] 实现内部决定记录与高风险执行硬阻断
 
 **Depends on:** T002  
 **Owner:** 执行 Agent  
@@ -299,7 +299,7 @@ PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover \
 
 ---
 
-### - [ ] T008 [US2] 跑通 Operations Review Room 的 APPROVE / REJECT
+### - [x] T008 [US2] 跑通 Operations Review Room 的 APPROVE / REJECT
 
 **Depends on:** T005、T007  
 **Owner:** 执行 Agent  
@@ -331,7 +331,7 @@ jq -e '.status == "CONFIRMED"' \
 
 ## Phase 4：User Story 3 — 补充信息并恢复未完成服务（P3）
 
-### - [ ] T009 [P] [US3] 实现 24 小时关闭、原 Case 重开与 Room 复用
+### - [x] T009 [P] [US3] 实现 24 小时关闭、原 Case 重开与 Room 复用
 
 **Depends on:** T003、T005  
 **Owner:** 执行 Agent  

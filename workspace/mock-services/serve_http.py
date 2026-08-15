@@ -20,6 +20,7 @@ from golden_path import (
     get_order_state,
     load_fixture,
     record_customer_confirmation,
+    record_internal_decision,
     resolve_order_reference,
     validate_execution_authorization,
     verify_rebooking,
@@ -196,6 +197,7 @@ def make_handler(state: PersistentStore) -> type[BaseHTTPRequestHandler]:
                 "/get-authorized-order",
                 "/evaluate-rebooking",
                 "/record-customer-confirmation",
+                "/record-internal-decision",
                 "/validate-execution-authorization",
                 "/execute-rebooking",
                 "/get-order-state",
@@ -307,6 +309,17 @@ def make_handler(state: PersistentStore) -> type[BaseHTTPRequestHandler]:
                     _required_string(request, "resolution_plan_id"),
                     _required_string(request, "risk_decision_id"),
                     _required_string(request, "message_event_id"),
+                )
+
+            if self.path == "/record-internal-decision":
+                return record_internal_decision(
+                    store,
+                    _required_string(request, "case_id"),
+                    _required_string(request, "resolution_plan_id"),
+                    _required_string(request, "risk_decision_id"),
+                    _required_string(request, "decision"),
+                    _required_string(request, "message_event_id"),
+                    _required_string(request, "operator_id"),
                 )
 
             if self.path == "/execute-rebooking":
