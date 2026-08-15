@@ -4,6 +4,31 @@
 
 `proj-goai-case-golden-001` 仅包含 `frontline,resolution` 两名业务 Worker；Verification 不加入 Case Project Room。运行证据见 `../runs/2026-08-14-project-room-migration/`。该能力使用本地 AgentTeams 与合成 Mock 服务，不代表生产环境部署。
 
+## T013-PREP 客户投影与统一旅程
+
+- `../mock-services/rehearsal_controller.py`：默认以 PREP 模式等待
+  Customer Chat 的第一条客户消息，再把同一 Case 的客户投影、
+  Project Room、Operations 和 Verification 路由串起来。
+- `../mock-services/run_customer_bridge.py`：仅保留为单条客户消息的底层
+  Frontline 联动适配器，录屏彩排不单独运行它。
+- `../mock-services/linked_journey_bridge.py`：验证客户投影、Project Room
+  结构化事件、Operations 路由和独立 Verification Package。
+- `../mock-services/agentteams_transport.py`：每次发送前 `ensure-ready`，通过
+  Matrix mention 触发对应 Worker，密钥仍留在现有 Manager 容器内。
+- Verification 不是只收到 Package：Transport 必须在 Verification
+  专属 Room 等待该 Worker 的严格 `VERIFICATION_RESULT`，验证真实
+  sender、Case、事故序号、状态与 evidence 后，Manager 才能发布摘要。
+  在真实 Result 通过前 Case 保持 `VERIFYING`；失败、超时或不一致使
+  Case 进入 `MANUAL_REQUIRED`。
+- `../mock-services/journey_orchestrator.py`：只自动推进第二次供应异常和
+  24 小时客户确认超时；不代替客户确认或运营审批。
+
+T013-PREP 已在唯一正式 Project Room 上使用 `CASE-SMOKE-*` 完成真实
+Frontline `ORDER_LINKED` → Resolution `RESOLUTION_ACCEPTED` 结构化交接。
+另一条 `CASE-SMOKE-*` 已验证 Verification 专属 Room 中真实
+Worker 回复被消费，且同 Case 在 Project Room 中的消息数为 0。
+该 Smoke 不是正式 T013 运行证据。
+
 本目录保存 GOAI Mock API 接入 AgentTeams 所需的 Higress MCP 配置、3 个 Worker manifest 与重跑说明。`mcp-goai-order` 当前暴露 8 个受控 Tool，覆盖安全定位订单、风险评估、客户确认、执行与独立核验。
 
 > 以下注册命令会修改本机 AgentTeams/Higress 配置。当前本机环境已完成注册；重装或重建环境时再执行。

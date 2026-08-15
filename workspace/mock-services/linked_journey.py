@@ -151,6 +151,27 @@ class LinkedJourney:
         idempotency_key: str,
         occurred_at: str,
     ) -> tuple[dict[str, Any], dict[str, Any]]:
+        execution, verification = self.execute_and_prepare_verification(
+            plan,
+            risk,
+            idempotency_key,
+            occurred_at,
+        )
+        self.finalize_verification(
+            verification["verification_status"],
+            occurred_at,
+        )
+        return execution, verification
+
+    def execute_and_prepare_verification(
+        self,
+        plan: dict[str, Any],
+        risk: dict[str, Any],
+        idempotency_key: str,
+        occurred_at: str,
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
+        """Execute and compute deterministic expectations while Case stays VERIFYING."""
+
         execution = execute_rebooking(
             self.store,
             self.case_id,
@@ -162,13 +183,21 @@ class LinkedJourney:
         verification = verify_rebooking(
             self.store, self.customer_id, plan, idempotency_key
         )
+        return execution, verification
+
+    def finalize_verification(
+        self,
+        verification_status: str,
+        occurred_at: str,
+    ) -> dict[str, Any]:
+        if verification_status not in {"PASSED", "FAILED"}:
+            raise ValueError("verification_status must be PASSED or FAILED")
         event = (
             "VERIFICATION_PASSED"
-            if verification["verification_status"] == "PASSED"
+            if verification_status == "PASSED"
             else "VERIFICATION_FAILED"
         )
-        self.apply_event(event, occurred_at)
-        return execution, verification
+        return self.apply_event(event, occurred_at)
 
     def notify_customer(self, occurred_at: str) -> dict[str, Any]:
         return self.apply_event("CUSTOMER_NOTIFIED", occurred_at)

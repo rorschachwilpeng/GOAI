@@ -99,4 +99,8 @@ Publish one short structured event using this shape:
 }
 ```
 
+The message body must contain this one JSON object only. An explicit Matrix
+mention may be carried as mention metadata or a single mention prefix, but do
+not add an acknowledgement, explanation, Markdown fence, or Tool transcript.
+
 Never publish hidden reasoning, raw Tool/MCP payloads, credentials, internal rule expressions, or sensitive order fields.

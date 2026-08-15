@@ -73,4 +73,8 @@ For the permitted cross-Room handoff, publish one short structured event:
 }
 ```
 
+The message body must contain this one JSON object only. An explicit Matrix
+mention may be carried as mention metadata or a single mention prefix, but do
+not add an acknowledgement, explanation, Markdown fence, or Tool transcript.
+
 Do not publish reasoning, raw Tool payloads, credentials, customer IDs, or sensitive order details.

@@ -16,3 +16,28 @@
 3. 打开 `http://127.0.0.1:19090/?conversation_id=linked-demo-conversation&customer_id=C001`。
 
 T011 只实现页面、独立投影与安全契约；T013 才会用真实运行的 `conversation_id` 启动统一旅程。
+
+## T013-PREP 统一彩排控制器
+
+`workspace/mock-services/rehearsal_controller.py` 是彩排时唯一需要启动的后台进程。
+它轮询同一个 Conversation，只把 `CUSTOMER` 消息发给真实
+Frontline Worker，并且只有通过 `CUSTOMER_SAFE_REPLY` 契约的返回才会
+经受保护的内部端点投影回页面。它还会在同一 Case 中路由
+Project Room 交接、Operations 审批和 Verification 核验。
+
+预演适配器使用本地临时 capability token，不得打印或写入仓库：
+
+```bash
+GOAI_INTERNAL_TOKEN="$(</tmp/goai-internal-token)" \
+PYTHONPATH=workspace/mock-services \
+python3 workspace/mock-services/rehearsal_controller.py \
+  --customer-id C001 \
+  --case-id CASE-SMOKE-REHEARSAL-001 \
+  --conversation-id conversation-smoke-rehearsal-001
+```
+
+启动后控制器只建立本地 Case/Conversation 并等待第一条客户
+消息；不会主动发送录制台词。用户彩排时只需在 Customer Chat
+发送客户消息，并在 Operations 镜头中发送一次 `APPROVE`
+或 `REJECT`。默认 PREP 模式不生成正式 Run Manifest，不占用
+T013 五个录制 Marker。

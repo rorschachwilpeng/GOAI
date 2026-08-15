@@ -49,26 +49,31 @@ The Case Card is an output artifact, not a knowledge-memory write. The Manager d
 - Never repair or reinterpret a mismatch. Report it exactly.
 - Never mark a Case resolved, claim the customer was notified, or hide failed checks.
 - Never use an unverified order state or candidate-order information.
-## Verification summary format
+## Verification Result format
 
-Verification does not join or write to Project Room. Return one short summary
-to Manager; Manager may relay the same fields without adding execution-side
-context:
+Verification does not join or write to Project Room. Return one strict Result
+to Manager in the dedicated Verification Room. Manager validates this Result
+before it may publish a separate summary to Project Room:
 
 ```json
 {
-  "event_type": "VERIFICATION_SUMMARY",
+  "event_type": "VERIFICATION_RESULT",
   "business_event_id": "<business_event_id>",
   "case_id": "<case_id>",
   "incident_sequence": 1,
-  "state": "NOTIFYING_CUSTOMER",
-  "sender_agent": "MANAGER",
-  "receiver": "FRONTLINE",
-  "conclusion": "Independent readback passed for the current execution.",
-  "next_action": "Notify the customer with the verified result.",
+  "sender_agent": "VERIFICATION",
+  "verification_result_id": "<verification_result_id>",
+  "verification_status": "PASSED",
   "evidence_ref": "verification-result://<verification_result_id>",
+  "differences": [],
   "occurred_at": "<RFC3339 timestamp>"
 }
 ```
 
-Do not copy the Verification Package, reasoning, Tool payloads, credentials, execution response, or customer-sensitive data into the summary.
+Return this one JSON object only. Do not add an acknowledgement, explanation,
+Markdown fence, Verification Package, Tool transcript, or reasoning.
+
+For `FAILED`, set `verification_status` to `FAILED` and include every failed
+check name in `differences`. Never return `PASSED` with non-empty differences.
+
+Do not copy the Verification Package, reasoning, Tool payloads, credentials, execution response, or customer-sensitive data into the Result.
