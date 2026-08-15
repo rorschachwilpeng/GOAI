@@ -5,12 +5,17 @@ from __future__ import annotations
 
 import argparse
 import copy
+import hmac
 import json
+import os
+import secrets
 import threading
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
+
+from conversation_store import ConversationError, ConversationStore
 
 from golden_path import (
     ToolError,
@@ -28,6 +33,7 @@ from golden_path import (
 
 
 DEFAULT_FIXTURE = Path(__file__).parent / "fixtures" / "golden-case.json"
+CUSTOMER_CHAT_DIR = Path(__file__).parents[1] / "customer-chat"
 MAX_REQUEST_BODY_BYTES = 1024 * 1024
 
 
@@ -38,13 +44,19 @@ class RequestBodyError(ValueError):
         self.code = code
 
 
+class InternalProjectionError(PermissionError):
+    pass
+
+
 class PersistentStore:
     """Process-local mutable store for the HTTP Golden Path spike."""
 
-    def __init__(self, fixture_path: str | Path):
+    def __init__(self, fixture_path: str | Path, internal_token: str):
         self.fixture_path = Path(fixture_path)
+        self.internal_token = internal_token
         self.lock = threading.RLock()
         self.store = load_fixture(self.fixture_path)
+        self.conversations = ConversationStore()
 
     def reset(self, execute_success_without_update: bool = False) -> None:
         self.store = load_fixture(self.fixture_path)
@@ -82,6 +94,22 @@ def make_handler(state: PersistentStore) -> type[BaseHTTPRequestHandler]:
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
             self.wfile.write(body)
+
+        def _send_static(self, filename: str, content_type: str) -> None:
+            body = (CUSTOMER_CHAT_DIR / filename).read_bytes()
+            self.send_response(HTTPStatus.OK)
+            self.send_header("Content-Type", content_type)
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.end_headers()
+            self.wfile.write(body)
+
+        def _require_internal_frontline(self) -> None:
+            authorization = self.headers.get("Authorization", "")
+            expected = f"Bearer {state.internal_token}"
+            if not hmac.compare_digest(authorization, expected):
+                raise InternalProjectionError("Internal Frontline capability is required")
 
         def _read_request_body(self) -> bytes:
             transfer_encoding = self.headers.get("Transfer-Encoding")
@@ -185,10 +213,31 @@ def make_handler(state: PersistentStore) -> type[BaseHTTPRequestHandler]:
                 chunks.append(chunk)
 
         def do_GET(self) -> None:  # noqa: N802
-            if self.path != "/health":
-                self._send_json(HTTPStatus.NOT_FOUND, _error("NOT_FOUND", "Endpoint not found"))
+            from urllib.parse import parse_qs, urlparse
+
+            parsed = urlparse(self.path)
+            if parsed.path in {"/", "/index.html"}:
+                self._send_static("index.html", "text/html; charset=utf-8")
                 return
-            self._send_json(HTTPStatus.OK, {"status": "ok"})
+            if parsed.path == "/styles.css":
+                self._send_static("styles.css", "text/css; charset=utf-8")
+                return
+            if parsed.path == "/app.js":
+                self._send_static("app.js", "text/javascript; charset=utf-8")
+                return
+            if parsed.path == "/health":
+                self._send_json(HTTPStatus.OK, {"status": "ok"})
+                return
+            if parsed.path.startswith("/conversations/"):
+                conversation_id = parsed.path.removeprefix("/conversations/")
+                try:
+                    customer_id = parse_qs(parsed.query).get("customer_id", [""])[0]
+                    projection = state.conversations.get(conversation_id, customer_id)
+                    self._send_json(HTTPStatus.OK, projection)
+                except ConversationError as error:
+                    self._send_json(HTTPStatus.NOT_FOUND, _error("NOT_FOUND", str(error)))
+                return
+            self._send_json(HTTPStatus.NOT_FOUND, _error("NOT_FOUND", "Endpoint not found"))
 
         def do_POST(self) -> None:  # noqa: N802
             supported_paths = {
@@ -202,8 +251,14 @@ def make_handler(state: PersistentStore) -> type[BaseHTTPRequestHandler]:
                 "/execute-rebooking",
                 "/get-order-state",
                 "/verify-rebooking",
+                "/internal/conversations",
             }
-            if self.path not in supported_paths:
+            is_message = self.path.startswith("/conversations/") and self.path.endswith("/messages")
+            is_frontline_message = (
+                self.path.startswith("/internal/conversations/")
+                and self.path.endswith("/frontline-messages")
+            )
+            if self.path not in supported_paths and not is_message and not is_frontline_message:
                 self._send_json(HTTPStatus.NOT_FOUND, _error("NOT_FOUND", "Endpoint not found"))
                 return
 
@@ -236,6 +291,12 @@ def make_handler(state: PersistentStore) -> type[BaseHTTPRequestHandler]:
                     _error(error.code, str(error)),
                 )
                 return
+            except ConversationError as error:
+                self._send_json(HTTPStatus.BAD_REQUEST, _error("INVALID_CONVERSATION", str(error)))
+                return
+            except InternalProjectionError as error:
+                self._send_json(HTTPStatus.FORBIDDEN, _error("FORBIDDEN", str(error)))
+                return
             except (KeyError, TypeError) as error:
                 self._send_json(
                     HTTPStatus.BAD_REQUEST,
@@ -255,7 +316,37 @@ def make_handler(state: PersistentStore) -> type[BaseHTTPRequestHandler]:
                         "execute_success_without_update must be a boolean",
                     )
                 state.reset(fault)
+                state.conversations.reset()
                 return {"status": "reset"}
+
+            if self.path == "/internal/conversations":
+                self._require_internal_frontline()
+                return state.conversations.create(
+                    _required_string(request, "conversation_id"),
+                    _required_string(request, "case_id"),
+                    _required_string(request, "customer_id"),
+                )
+            if self.path.startswith("/conversations/") and self.path.endswith("/messages"):
+                conversation_id = self.path.split("/")[2]
+                if request.get("sender") != "CUSTOMER":
+                    raise ToolError("INVALID_REQUEST", "Browser may only send CUSTOMER messages")
+                return state.conversations.append_customer(
+                    conversation_id,
+                    _required_string(request, "customer_id"),
+                    _required_string(request, "body"),
+                )
+            if (
+                self.path.startswith("/internal/conversations/")
+                and self.path.endswith("/frontline-messages")
+            ):
+                self._require_internal_frontline()
+                conversation_id = self.path.split("/")[3]
+                return state.conversations.append_frontline_projection(
+                    conversation_id,
+                    _required_string(request, "customer_id"),
+                    _required_string(request, "message_type"),
+                    _required_string(request, "body"),
+                )
 
             if self.path == "/resolve-order-reference":
                 customer_id = _required_string(request, "customer_id")
@@ -371,10 +462,13 @@ def create_server(
     host: str = "0.0.0.0",
     port: int = 19090,
     fixture_path: str | Path = DEFAULT_FIXTURE,
+    internal_token: str | None = None,
 ) -> ThreadingHTTPServer:
-    state = PersistentStore(fixture_path)
+    token = internal_token or secrets.token_urlsafe(32)
+    state = PersistentStore(fixture_path, token)
     server = ThreadingHTTPServer((host, port), make_handler(state))
     server.store_state = state
+    server.internal_token = token
     return server
 
 
@@ -385,7 +479,12 @@ def main() -> None:
     parser.add_argument("--fixture", type=Path, default=DEFAULT_FIXTURE)
     args = parser.parse_args()
 
-    server = create_server(args.host, args.port, args.fixture)
+    server = create_server(
+        args.host,
+        args.port,
+        args.fixture,
+        internal_token=os.environ.get("GOAI_INTERNAL_TOKEN"),
+    )
     print(f"GOAI mock API listening on http://{args.host}:{server.server_port}", flush=True)
     try:
         server.serve_forever()

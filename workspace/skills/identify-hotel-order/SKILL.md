@@ -28,9 +28,9 @@ mcporter call mcp-goai-frontline.resolve_order_reference \
    - `MULTIPLE`: report only `candidate_count` and `missing_fields`; ask the customer for those fields.
    - `UNIQUE`: return only the opaque `order_ref`, `ownership_verified`, and `matched_fields`.
 4. Publish an `ORDER_LINKED` handoff to the Case Project Room only after a
-   `UNIQUE` result. Include `case_id`, trusted `customer_id`, opaque
-   `order_ref`, ownership result, matched fields, and allowed next action for
-   the Resolution Agent. Do not add guessed order facts.
+   `UNIQUE` result. Use the structured display event below and put the opaque
+   `order_ref` in `evidence_ref`; the trusted Case context supplies customer
+   identity. Do not add guessed order facts or customer-visible order details.
    This is the single permitted cross-Room business handoff: use
    `/opt/venv/standard/bin/copaw chats list --agent-id default --channel matrix`
    to find the already-assigned Case Project Room session, then use
@@ -38,8 +38,9 @@ mcporter call mcp-goai-frontline.resolve_order_reference \
    Do not use `copaw channels list`, guess a Room, or read credentials.
 5. When the Resolution Agent publishes a current plan requiring customer
    confirmation, obtain the customer's explicit message event and call
-   `mcp-goai-frontline.record_customer_confirmation`. Publish the confirmation
-   record to the Case Project Room.
+   `mcp-goai-frontline.record_customer_confirmation`. Publish only a short
+   `CUSTOMER_CONFIRMATION_RECORDED` event to the Case Project Room and put the
+   stored confirmation reference in `evidence_ref`; do not paste the record.
 
 ## Safety rules
 
@@ -52,3 +53,24 @@ mcporter call mcp-goai-frontline.resolve_order_reference \
   Resolution or Verification Surface.
 - Do not investigate supply evidence or make rebooking plans.
 - If the Tool fails, publish its error to the Case Project Room; do not fabricate a match.
+## Project Room display format
+
+For the permitted cross-Room handoff, publish one short structured event:
+
+```json
+{
+  "event_type": "ORDER_LINKED",
+  "business_event_id": "<business_event_id>",
+  "case_id": "<case_id>",
+  "incident_sequence": 1,
+  "state": "RESOLVING",
+  "sender_agent": "FRONTLINE",
+  "receiver": "RESOLUTION",
+  "conclusion": "Customer-owned order was uniquely linked.",
+  "next_action": "Investigate the current supplier exception.",
+  "evidence_ref": "order-ref://<opaque_order_ref>",
+  "occurred_at": "<RFC3339 timestamp>"
+}
+```
+
+Do not publish reasoning, raw Tool payloads, credentials, customer IDs, or sensitive order details.

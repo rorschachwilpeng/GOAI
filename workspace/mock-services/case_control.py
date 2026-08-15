@@ -34,12 +34,15 @@ TRANSITIONS = {
     ("RESOLVING", "RISK_DENIED"): "MANUAL_REQUIRED",
     ("AWAITING_CUSTOMER_CONFIRMATION", "CUSTOMER_CONFIRMED"): "EXECUTING",
     ("AWAITING_CUSTOMER_CONFIRMATION", "CUSTOMER_REJECTED"): "RESOLVING",
-    ("AWAITING_INTERNAL_APPROVAL", "INTERNAL_APPROVED"): "EXECUTING",
+    ("AWAITING_CUSTOMER_CONFIRMATION", "CUSTOMER_CONFIRMATION_REQUESTED"): "AWAITING_CUSTOMER_CONFIRMATION",
     ("AWAITING_INTERNAL_APPROVAL", "INTERNAL_REJECTED"): "MANUAL_REQUIRED",
     ("EXECUTING", "REBOOKING_ATTEMPTED"): "VERIFYING",
     ("VERIFYING", "VERIFICATION_PASSED"): "NOTIFYING_CUSTOMER",
     ("VERIFYING", "VERIFICATION_FAILED"): "MANUAL_REQUIRED",
     ("NOTIFYING_CUSTOMER", "CUSTOMER_NOTIFIED"): "RESOLVED",
+    ("RESOLVED", "SUPPLIER_EXCEPTION_RECURRED"): "RESOLVING",
+    ("AWAITING_INTERNAL_APPROVAL", "INTERNAL_APPROVED"): "AWAITING_CUSTOMER_CONFIRMATION",
+    ("AWAITING_CUSTOMER_CONFIRMATION", "CUSTOMER_CONFIRMATION_TIMEOUT"): "CLOSED_INCOMPLETE",
 }
 
 
@@ -76,6 +79,7 @@ class CaseStore:
             "reply_deadline_at": None,
             "background_tasks_active": False,
             "reopened_count": 0,
+            "incident_sequence": 1,
             "created_at": occurred_at,
             "updated_at": occurred_at,
         }
@@ -107,13 +111,31 @@ class CaseStore:
             case["reopened_count"] += 1
             case["reply_deadline_at"] = None
             case["background_tasks_active"] = False
+        elif event_type == "LATE_CUSTOMER_CONFIRMATION_RECEIVED":
+            if case["case_state"] != "CLOSED_INCOMPLETE":
+                raise CaseTransitionError("Late confirmation can only restore an incomplete Case")
+            if "customer_id" in payload and payload["customer_id"] != case["customer_id"]:
+                raise CaseTransitionError("customer_id cannot change when restoring a Case")
+            deadline = case.get("reply_deadline_at")
+            if not deadline:
+                raise CaseTransitionError("Customer confirmation was not requested")
+            arrived_at = _aware_timestamp(
+                payload.get("message_arrival_at", ""), "message_arrival_at"
+            )
+            if arrived_at <= _aware_timestamp(deadline, "reply_deadline_at"):
+                raise CaseTransitionError("This confirmation is not late")
+            case["case_state"] = "AWAITING_CUSTOMER_CONFIRMATION"
+            case["reopened_count"] += 1
+            case["last_reply_deadline_at"] = deadline
+            case["reply_deadline_at"] = None
+            case["background_tasks_active"] = False
         else:
             next_state = TRANSITIONS.get((case["case_state"], event_type))
             if not next_state:
                 raise CaseTransitionError(
                     f"Event {event_type} is not allowed from {case['case_state']}"
                 )
-            if event_type == "CUSTOMER_INFO_REQUESTED":
+            if event_type in {"CUSTOMER_INFO_REQUESTED", "CUSTOMER_CONFIRMATION_REQUESTED"}:
                 sent_at = _aware_timestamp(occurred_at, "occurred_at")
                 case["reply_deadline_at"] = (sent_at + timedelta(hours=24)).isoformat()
                 case["background_tasks_active"] = True
@@ -128,6 +150,20 @@ class CaseStore:
                     raise CaseTransitionError("Late customer information must reopen the Case")
                 case["reply_deadline_at"] = None
                 case["background_tasks_active"] = False
+            elif event_type == "ORDER_LINKED":
+                if payload.get("order_ref"):
+                    case["order_ref"] = payload["order_ref"]
+            elif event_type == "CUSTOMER_CONFIRMED":
+                if case.get("reply_deadline_at") and payload.get("message_arrival_at"):
+                    arrived_at = _aware_timestamp(
+                        payload["message_arrival_at"], "message_arrival_at"
+                    )
+                    if arrived_at > _aware_timestamp(
+                        case["reply_deadline_at"], "reply_deadline_at"
+                    ):
+                        raise CaseTransitionError("Late confirmation must restore the Case first")
+                case["reply_deadline_at"] = None
+                case["background_tasks_active"] = False
             elif event_type == "CUSTOMER_INFO_TIMEOUT":
                 deadline = case.get("reply_deadline_at")
                 if not deadline:
@@ -136,6 +172,18 @@ class CaseStore:
                     deadline, "reply_deadline_at"
                 ):
                     raise CaseTransitionError("Customer information deadline has not passed")
+                case["background_tasks_active"] = False
+            elif event_type == "SUPPLIER_EXCEPTION_RECURRED":
+                case["incident_sequence"] = case.get("incident_sequence", 1) + 1
+                case["current_supplier_exception_id"] = payload.get("exception_id")
+            elif event_type == "CUSTOMER_CONFIRMATION_TIMEOUT":
+                deadline = case.get("reply_deadline_at")
+                if not deadline:
+                    raise CaseTransitionError("Customer confirmation was not requested")
+                if _aware_timestamp(occurred_at, "occurred_at") < _aware_timestamp(
+                    deadline, "reply_deadline_at"
+                ):
+                    raise CaseTransitionError("Customer confirmation deadline has not passed")
                 case["background_tasks_active"] = False
             case["case_state"] = next_state
         case["updated_at"] = occurred_at

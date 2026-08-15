@@ -9,6 +9,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from verification_package import freeze_verification_package, verify_package_hash
+
 
 class ToolError(RuntimeError):
     """A deterministic tool rejection with a machine-readable code."""
@@ -53,6 +55,8 @@ def load_fixture(path: str | Path) -> dict[str, Any]:
     store["confirmations"] = {}
     store["internal_decisions"] = {}
     store["execution_records"] = {}
+    store["verification_packages"] = {}
+    store["verification_results"] = {}
     return store
 
 
@@ -147,6 +151,26 @@ def get_authorized_order(
         for item in store["alternatives"]
         if item["for_order_id"] == order["order_id"] and item["available"]
     ]
+    active_case = next(
+        (
+            case
+            for case in store["cases"].values()
+            if case.get("customer_id") == customer_id and case.get("order_ref") == order_ref
+        ),
+        None,
+    )
+    if active_case:
+        incident_sequence = active_case.get("incident_sequence", 1)
+        exceptions = [
+            item
+            for item in exceptions
+            if item.get("incident_sequence", 1) == incident_sequence
+        ]
+        alternatives = [
+            item
+            for item in alternatives
+            if item.get("incident_sequence", 1) == incident_sequence
+        ]
     result = {
         "order": copy.deepcopy(order),
         "supplier_exceptions": copy.deepcopy(exceptions),
@@ -184,7 +208,7 @@ def evaluate_rebooking(
     elif price_difference <= policy["internal_approval_max_price_difference_cny"]:
         decision = "REQUIRE_INTERNAL_APPROVAL"
         reason_code = "PRICE_DIFF_REQUIRES_INTERNAL_APPROVAL"
-        required_controls = ["INTERNAL_APPROVAL"]
+        required_controls = ["INTERNAL_APPROVAL", "CUSTOMER_CONFIRMATION"]
     else:
         decision = "DENY"
         reason_code = "PRICE_DIFF_EXCEEDS_POLICY_LIMIT"
@@ -221,6 +245,10 @@ def record_customer_confirmation(
         raise ToolError("CONFIRMATION_CONTEXT_INVALID", "Case, plan, and risk decision must exist")
     if risk["resolution_plan_id"] != resolution_plan_id:
         raise ToolError("CONFIRMATION_CONTEXT_INVALID", "Risk decision is not bound to this plan")
+    if plan.get("case_id") not in {None, case_id} or plan.get(
+        "incident_sequence", case.get("incident_sequence", 1)
+    ) != case.get("incident_sequence", 1):
+        raise ToolError("CONFIRMATION_CONTEXT_INVALID", "Plan is not current for this Case incident")
     reference = _authorized_ref(store, case["customer_id"], plan["order_ref"])
     if reference["order_id"] != plan["order_id"]:
         raise ToolError("CONFIRMATION_CONTEXT_INVALID", "Plan order does not match its authorized reference")
@@ -234,6 +262,8 @@ def record_customer_confirmation(
         "risk_decision_id": risk_decision_id,
         "message_event_id": message_event_id,
         "confirmed": True,
+        "incident_sequence": case.get("incident_sequence", 1),
+        "recorded_at": datetime.now(timezone.utc).isoformat(),
     }
     store["confirmations"][confirmation_id] = result
     if trace:
@@ -264,6 +294,9 @@ def record_internal_decision(
         or not risk
         or risk["resolution_plan_id"] != resolution_plan_id
         or risk["decision"] != "REQUIRE_INTERNAL_APPROVAL"
+        or plan.get("case_id") not in {None, case_id}
+        or plan.get("incident_sequence", case.get("incident_sequence", 1))
+        != case.get("incident_sequence", 1)
     ):
         raise ToolError(
             "INTERNAL_DECISION_CONTEXT_INVALID",
@@ -313,6 +346,10 @@ def validate_execution_authorization(
         raise ToolError("EXECUTION_CONTEXT_INVALID", "Execution context is missing or invalid")
     if risk["resolution_plan_id"] != resolution_plan_id:
         raise ToolError("EXECUTION_CONTEXT_INVALID", "Risk decision is not bound to this plan")
+    if plan.get("case_id") not in {None, case_id} or plan.get(
+        "incident_sequence", case.get("incident_sequence", 1)
+    ) != case.get("incident_sequence", 1):
+        raise ToolError("EXECUTION_CONTEXT_INVALID", "Plan is not current for this Case incident")
 
     reference = _authorized_ref(store, case["customer_id"], plan["order_ref"])
     order = _find_by_id(store["orders"], "order_id", reference["order_id"])
@@ -336,10 +373,20 @@ def validate_execution_authorization(
             raise ToolError("INTERNAL_APPROVAL_REQUIRED", "Internal approval is required")
         if internal_decision["decision"] == "REJECT":
             raise ToolError("INTERNAL_APPROVAL_REJECTED", "Internal approval rejected this plan")
+        confirmed = any(
+            item["case_id"] == case_id
+            and item["resolution_plan_id"] == resolution_plan_id
+            and item["risk_decision_id"] == risk_decision_id
+            and item["confirmed"]
+            for item in store["confirmations"].values()
+        )
+        if not confirmed:
+            raise ToolError("CUSTOMER_CONFIRMATION_REQUIRED", "Customer confirmation is required")
         result = {
             "authorized": True,
-            "execution_enabled": False,
+            "execution_enabled": True,
             "risk_decision_id": risk_decision_id,
+            "satisfied_controls": ["INTERNAL_APPROVAL", "CUSTOMER_CONFIRMATION"],
         }
         if trace:
             trace.record("EXECUTION_AUTHORIZED", "validate_execution_authorization", result=result)
@@ -379,13 +426,6 @@ def execute_rebooking(
             trace.record("REBOOKING_REPLAYED", "execute_rebooking", result=previous)
         return previous
 
-    risk = store["risk_decisions"].get(risk_decision_id)
-    if risk and risk["decision"] == "REQUIRE_INTERNAL_APPROVAL":
-        raise ToolError(
-            "HIGH_RISK_EXECUTION_NOT_ENABLED",
-            "High-risk execution is not enabled in V0.1",
-        )
-
     validate_execution_authorization(
         store,
         case_id,
@@ -398,7 +438,7 @@ def execute_rebooking(
     reference = _authorized_ref(store, case["customer_id"], plan["order_ref"])
     order = _find_by_id(store["orders"], "order_id", reference["order_id"])
 
-    confirmation_number = f"RBK-{case_id.removeprefix('CASE-')}"
+    confirmation_number = f"RBK-{case_id.removeprefix('CASE-')}-{len(store['execution_records']) + 1}"
     if not store["fault_injection"].get("execute_success_without_update", False):
         order.update(
             {
@@ -414,7 +454,7 @@ def execute_rebooking(
         )
 
     result = {
-        "execution_id": f"EXEC-{case_id}",
+        "execution_id": f"EXEC-{case_id}-{len(store['execution_records']) + 1}",
         "case_id": case_id,
         "resolution_plan_id": resolution_plan_id,
         "risk_decision_id": risk_decision_id,
@@ -423,7 +463,40 @@ def execute_rebooking(
         "confirmation_number": confirmation_number,
         "idempotency_key": idempotency_key,
         "idempotent_replay": False,
+        "incident_sequence": case.get("incident_sequence", 1),
     }
+    package_payload = {
+        "package_id": f"VP-{result['execution_id']}",
+        "case_id": case_id,
+        "customer_id": case["customer_id"],
+        "incident_sequence": store["cases"][case_id].get("incident_sequence", 1),
+        "execution_id": result["execution_id"],
+        "resolution_plan_id": resolution_plan_id,
+        "risk_decision_id": risk_decision_id,
+        "order_ref": plan["order_ref"],
+        "idempotency_key": idempotency_key,
+        "resolution_plan_snapshot": copy.deepcopy(plan),
+        "expected_result": {
+            "hotel_id": plan["replacement_hotel_id"],
+            "check_in_date": plan["check_in_date"],
+            "check_out_date": plan["check_out_date"],
+            "status": plan["expected_target_status"],
+        },
+        "bdd_assertions": [
+            "target order and ownership remain unchanged",
+            "replacement hotel and stay dates match the authorized plan",
+            "order status and confirmation number reflect the rebooking",
+            "the persisted idempotency key matches this execution",
+        ],
+        "evidence_refs": [f"execution://{result['execution_id']}"],
+        "package_version": "v0.2",
+    }
+    package = freeze_verification_package(
+        package_payload, datetime.now(timezone.utc).isoformat()
+    )
+    store["verification_packages"][result["execution_id"]] = package
+    result["verification_package_id"] = package["package_id"]
+    result["verification_package_sha256"] = package["sha256"]
     store["execution_records"][idempotency_key] = copy.deepcopy(result)
     if trace:
         trace.record("REBOOKING_EXECUTED", "execute_rebooking", result=result)
@@ -456,29 +529,45 @@ def verify_rebooking(
     idempotency_key: str,
     trace: TraceRecorder | None = None,
 ) -> dict[str, Any]:
-    actual = get_order_state(store, customer_id, resolution_plan["order_ref"], trace)
+    execution = store["execution_records"].get(idempotency_key)
+    if not execution:
+        raise ToolError("EXECUTION_NOT_FOUND", "No execution exists for this idempotency key")
+    package = store["verification_packages"].get(execution["execution_id"])
+    if not package or not verify_package_hash(package):
+        raise ToolError("VERIFICATION_PACKAGE_INVALID", "Frozen Verification Package is missing or invalid")
+    package_plan = package["resolution_plan_snapshot"]
+    if resolution_plan["resolution_plan_id"] != package_plan["resolution_plan_id"]:
+        raise ToolError("VERIFICATION_CONTEXT_INVALID", "Plan does not match the frozen package")
+
+    actual = get_order_state(store, customer_id, package_plan["order_ref"], trace)
     checks = {
-        "target_order_matches": actual["order_id"] == resolution_plan["order_id"],
+        "target_order_matches": actual["order_id"] == package_plan["order_id"],
         "ownership_unchanged": actual["customer_id"] == customer_id,
-        "replacement_hotel_matches": actual["hotel_id"] == resolution_plan["replacement_hotel_id"],
+        "replacement_hotel_matches": actual["hotel_id"] == package_plan["replacement_hotel_id"],
         "stay_dates_match": (
-            actual["check_in_date"] == resolution_plan["check_in_date"]
-            and actual["check_out_date"] == resolution_plan["check_out_date"]
+            actual["check_in_date"] == package_plan["check_in_date"]
+            and actual["check_out_date"] == package_plan["check_out_date"]
         ),
-        "order_status_matches": actual["status"] == resolution_plan["expected_target_status"],
+        "order_status_matches": actual["status"] == package_plan["expected_target_status"],
         "confirmation_number_exists": (
             bool(actual["confirmation_number"])
-            and actual["confirmation_number"] != resolution_plan["previous_confirmation_number"]
+            and actual["confirmation_number"] != package_plan["previous_confirmation_number"]
         ),
         "idempotency_key_matches": actual["last_idempotency_key"] == idempotency_key,
     }
     differences = [name for name, passed in checks.items() if not passed]
     result = {
+        "verification_result_id": f"VR-{execution['execution_id']}",
+        "verification_package_id": package["package_id"],
+        "verification_package_hash_valid": True,
+        "execution_id": execution["execution_id"],
+        "incident_sequence": package["incident_sequence"],
         "verification_status": "PASSED" if not differences else "FAILED",
         "order_id": actual["order_id"],
         "checks": checks,
         "differences": differences,
     }
+    store["verification_results"][execution["execution_id"]] = copy.deepcopy(result)
     if trace:
         trace.record(
             "VERIFICATION_PASSED" if not differences else "VERIFICATION_FAILED",
@@ -492,27 +581,44 @@ def create_resolution_plan(
     store: dict[str, Any],
     order_ref: str,
     authorized_context: dict[str, Any],
+    incident_sequence: int = 1,
+    case_id: str | None = None,
 ) -> dict[str, Any]:
     order = authorized_context["order"]
-    if not authorized_context["supplier_exceptions"]:
+    exceptions = [
+        item
+        for item in authorized_context["supplier_exceptions"]
+        if item.get("incident_sequence", 1) == incident_sequence
+    ]
+    alternatives = [
+        item
+        for item in authorized_context["eligible_rebooking_options"]
+        if item.get("incident_sequence", 1) == incident_sequence
+    ]
+    if not exceptions:
         raise ToolError("SUPPLIER_EVIDENCE_MISSING", "No supplier exception supports rebooking")
-    if not authorized_context["eligible_rebooking_options"]:
+    if not alternatives:
         raise ToolError("REBOOKING_OPTION_MISSING", "No eligible rebooking option is available")
-    alternative = authorized_context["eligible_rebooking_options"][0]
+    if len(alternatives) != 1:
+        raise ToolError("REBOOKING_OPTION_AMBIGUOUS", "Exactly one eligible option is required")
+    alternative = alternatives[0]
+    supplier_exception = exceptions[0]
     plan = {
-        "resolution_plan_id": "PLAN-GOLDEN-001",
+        "resolution_plan_id": f"PLAN-GOLDEN-{incident_sequence:03d}",
+        "case_id": case_id,
+        "incident_sequence": incident_sequence,
         "order_ref": order_ref,
         "order_id": order["order_id"],
         "action": "REBOOK",
-        "diagnosis": authorized_context["supplier_exceptions"][0]["summary"],
-        "evidence_ids": [authorized_context["supplier_exceptions"][0]["exception_id"]],
+        "diagnosis": supplier_exception["summary"],
+        "evidence_ids": [supplier_exception["exception_id"]],
         "replacement_hotel_id": alternative["hotel_id"],
         "replacement_hotel_name": alternative["hotel_name"],
         "check_in_date": alternative["check_in_date"],
         "check_out_date": alternative["check_out_date"],
         "price_difference_cny": alternative["price_difference_cny"],
         "previous_confirmation_number": order["confirmation_number"],
-        "expected_current_status": "CONFIRMED",
+        "expected_current_status": "CONFIRMED" if incident_sequence == 1 else "REBOOKED",
         "expected_target_status": "REBOOKED",
     }
     store["resolution_plans"][plan["resolution_plan_id"]] = copy.deepcopy(plan)

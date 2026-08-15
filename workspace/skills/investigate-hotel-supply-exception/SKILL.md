@@ -20,9 +20,10 @@ Do not accept a raw order ID or expand the authorized customer scope.
 2. Require structured supplier-exception evidence and at least one eligible rebooking option. If either is missing, stop and report the Tool error or evidence gap.
 3. Build one flat structured Resolution Plan from returned evidence. It MUST contain exactly the contract fields accepted by `evaluate_rebooking`: `resolution_plan_id`, `order_ref`, `order_id`, `action`, `diagnosis`, `evidence_ids`, `replacement_hotel_id`, `replacement_hotel_name`, `check_in_date`, `check_out_date`, `price_difference_cny`, `previous_confirmation_number`, `expected_current_status`, and `expected_target_status`. Copy those values from the authorized order, supplier exception, and selected eligible option. Do not nest source objects and do not invent availability, price, or policy.
 4. Call `mcp-goai-resolution.evaluate_rebooking` with the complete plan.
-5. Publish the diagnosis, evidence, Resolution Plan, and Risk Decision directly
-   to the Case Project Room for the Frontline Agent. Do not require Manager to
-   relay this business handoff.
+5. Publish a short `RESOLUTION_PROPOSED` display event directly to the Case
+   Project Room for the Frontline Agent. Reference the stored plan and risk
+   decision through opaque `evidence_ref` values; do not paste either payload.
+   Do not require Manager to relay this business handoff.
 
 ## Controlled execution
 
@@ -36,7 +37,9 @@ When a valid confirmation record exists and the Case state allows execution:
 1. Call `mcp-goai-resolution.validate_execution_authorization` with the bound Case, plan, and risk decision.
 2. Continue only if the Tool returns `authorized=true`.
 3. Call `mcp-goai-resolution.execute_rebooking` once with the same IDs and the supplied `idempotency_key`.
-4. Publish the Execution Record to the Case Project Room without claiming the order is resolved. Verification is a separate Agent's responsibility.
+4. Publish a short `EXECUTION_RECORDED` display event with an opaque Execution
+   Record reference. Do not paste the record or claim the order is resolved.
+   Verification is a separate Agent's responsibility.
 
 ## P2 Operations Review exception
 
@@ -76,3 +79,24 @@ Case Project Room handoff and does not relax that Room's Frontline-only
 - Never infer customer confirmation from conversational wording; rely on the Tool-bound confirmation record.
 - Never change an order outside `execute_rebooking` or retry with a new idempotency key after an uncertain result.
 - Never claim execution succeeded from model reasoning. Preserve the Tool result and hand off to independent verification.
+## Project Room display format
+
+Publish one short structured event using this shape:
+
+```json
+{
+  "event_type": "RESOLUTION_PROPOSED",
+  "business_event_id": "<business_event_id>",
+  "case_id": "<case_id>",
+  "incident_sequence": 1,
+  "state": "AWAITING_CUSTOMER_CONFIRMATION",
+  "sender_agent": "RESOLUTION",
+  "receiver": "FRONTLINE",
+  "conclusion": "An eligible replacement plan is ready.",
+  "next_action": "Request customer confirmation for the current plan.",
+  "evidence_ref": "resolution-plan://<resolution_plan_id>",
+  "occurred_at": "<RFC3339 timestamp>"
+}
+```
+
+Never publish hidden reasoning, raw Tool/MCP payloads, credentials, internal rule expressions, or sensitive order fields.

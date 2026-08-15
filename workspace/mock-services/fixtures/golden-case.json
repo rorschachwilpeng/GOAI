@@ -51,10 +51,22 @@
     {
       "exception_id": "SUP-EX-001",
       "order_id": "H-C001-001",
+      "incident_sequence": 1,
+      "affected_hotel_id": "HTL-SHA-GARDEN",
       "type": "HOTEL_OVERBOOKED",
       "summary": "原酒店确认无法履约",
       "source": "SYNTHETIC_SUPPLIER_EVENT",
       "occurred_at": "2026-08-12T09:00:00+08:00"
+    },
+    {
+      "exception_id": "SUP-EX-002",
+      "order_id": "H-C001-001",
+      "incident_sequence": 2,
+      "affected_hotel_id": "HTL-SHA-HARBOR",
+      "type": "REPLACEMENT_HOTEL_CANCELLED",
+      "summary": "首次改订的替代酒店通知无法继续履约",
+      "source": "SYNTHETIC_SUPPLIER_EVENT",
+      "occurred_at": "2026-08-15T10:00:00+08:00"
     }
   ],
   "alternatives": [
@@ -68,11 +80,25 @@
       "room_type": "高级大床房",
       "hotel_level": 4,
       "price_difference_cny": 180,
+      "incident_sequence": 1,
+      "available": true
+    },
+    {
+      "alternative_id": "ALT-002",
+      "for_order_id": "H-C001-001",
+      "hotel_id": "HTL-SHA-RIVERSIDE",
+      "hotel_name": "上海虹桥江景酒店",
+      "check_in_date": "2026-08-15",
+      "check_out_date": "2026-08-17",
+      "room_type": "高级大床房",
+      "hotel_level": 4,
+      "price_difference_cny": 800,
+      "incident_sequence": 2,
       "available": true
     }
   ],
   "policy": {
-    "rule_version": "rebooking-v0.1",
+    "rule_version": "rebooking-v0.2",
     "customer_confirmation_max_price_difference_cny": 300,
     "internal_approval_max_price_difference_cny": 1000
   },

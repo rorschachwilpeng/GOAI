@@ -49,3 +49,26 @@ The Case Card is an output artifact, not a knowledge-memory write. The Manager d
 - Never repair or reinterpret a mismatch. Report it exactly.
 - Never mark a Case resolved, claim the customer was notified, or hide failed checks.
 - Never use an unverified order state or candidate-order information.
+## Verification summary format
+
+Verification does not join or write to Project Room. Return one short summary
+to Manager; Manager may relay the same fields without adding execution-side
+context:
+
+```json
+{
+  "event_type": "VERIFICATION_SUMMARY",
+  "business_event_id": "<business_event_id>",
+  "case_id": "<case_id>",
+  "incident_sequence": 1,
+  "state": "NOTIFYING_CUSTOMER",
+  "sender_agent": "MANAGER",
+  "receiver": "FRONTLINE",
+  "conclusion": "Independent readback passed for the current execution.",
+  "next_action": "Notify the customer with the verified result.",
+  "evidence_ref": "verification-result://<verification_result_id>",
+  "occurred_at": "<RFC3339 timestamp>"
+}
+```
+
+Do not copy the Verification Package, reasoning, Tool payloads, credentials, execution response, or customer-sensitive data into the summary.

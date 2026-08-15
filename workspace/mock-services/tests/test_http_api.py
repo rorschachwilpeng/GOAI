@@ -39,18 +39,32 @@ class HttpApiTest(unittest.TestCase):
         self.assertEqual(response, {"status": "reset"})
 
     def get_json(self, path: str) -> tuple[int, dict]:
+        try:
+            with urlopen(f"{self.base_url}{path}", timeout=2) as response:
+                return response.status, json.loads(response.read())
+        except HTTPError as error:
+            return error.code, json.loads(error.read())
+
+    def get_text(self, path: str) -> tuple[int, str, str]:
         with urlopen(f"{self.base_url}{path}", timeout=2) as response:
-            return response.status, json.loads(response.read())
+            return (
+                response.status,
+                response.headers.get_content_type(),
+                response.read().decode("utf-8"),
+            )
 
     def post_json(
         self,
         payload: object,
         path: str = "/resolve-order-reference",
+        headers: dict[str, str] | None = None,
     ) -> tuple[int, dict]:
+        request_headers = {"Content-Type": "application/json"}
+        request_headers.update(headers or {})
         request = Request(
             f"{self.base_url}{path}",
             data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
-            headers={"Content-Type": "application/json"},
+            headers=request_headers,
             method="POST",
         )
         try:
@@ -58,6 +72,25 @@ class HttpApiTest(unittest.TestCase):
                 return response.status, json.loads(response.read())
         except HTTPError as error:
             return error.code, json.loads(error.read())
+
+    def post_internal(self, payload: object, path: str) -> tuple[int, dict]:
+        return self.post_json(
+            payload,
+            path,
+            {"Authorization": f"Bearer {self.server.internal_token}"},
+        )
+
+    def create_demo_conversation(self) -> dict:
+        status, conversation = self.post_internal(
+            {
+                "conversation_id": "linked-demo-conversation",
+                "case_id": "CASE-LINKED-DEMO-001",
+                "customer_id": "C001",
+            },
+            "/internal/conversations",
+        )
+        self.assertEqual(status, 200)
+        return conversation
 
     def prepare_rebooking(self, price_difference_cny: int = 180) -> tuple[dict, dict]:
         status, match = self.post_json(
@@ -290,9 +323,9 @@ class HttpApiTest(unittest.TestCase):
             "/execute-rebooking",
         )
         self.assertEqual(status, 400)
-        self.assertEqual(response["error"]["code"], "HIGH_RISK_EXECUTION_NOT_ENABLED")
+        self.assertEqual(response["error"]["code"], "INTERNAL_APPROVAL_REQUIRED")
 
-    def test_approved_high_risk_decision_is_authorized_but_execution_stays_disabled(self):
+    def test_approved_high_risk_decision_also_requires_customer_confirmation(self):
         plan, risk = self.prepare_rebooking(800)
         status, decision = self.post_json(
             {
@@ -316,9 +349,13 @@ class HttpApiTest(unittest.TestCase):
             },
             "/validate-execution-authorization",
         )
+        self.assertEqual(status, 400)
+        self.assertEqual(authorization["error"]["code"], "CUSTOMER_CONFIRMATION_REQUIRED")
+        status, _ = self.post_json(
+            {"case_id": "CASE-HTTP-001", "resolution_plan_id": plan["resolution_plan_id"], "risk_decision_id": risk["risk_decision_id"], "message_event_id": "MSG-CUSTOMER-APPROVE"},
+            "/record-customer-confirmation",
+        )
         self.assertEqual(status, 200)
-        self.assertEqual(authorization["authorized"], True)
-        self.assertEqual(authorization["execution_enabled"], False)
         status, response = self.post_json(
             {
                 "case_id": "CASE-HTTP-001",
@@ -328,14 +365,13 @@ class HttpApiTest(unittest.TestCase):
             },
             "/execute-rebooking",
         )
-        self.assertEqual(status, 400)
-        self.assertEqual(response["error"]["code"], "HIGH_RISK_EXECUTION_NOT_ENABLED")
+        self.assertEqual(status, 200)
         status, order = self.post_json(
             {"customer_id": "C001", "order_ref": plan["order_ref"]},
             "/get-order-state",
         )
         self.assertEqual(status, 200)
-        self.assertEqual(order["status"], "CONFIRMED")
+        self.assertEqual(order["status"], "REBOOKED")
 
     def test_rejected_internal_decision_blocks_authorization(self):
         plan, risk = self.prepare_rebooking(800)
@@ -410,6 +446,128 @@ class HttpApiTest(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertEqual(verification["verification_status"], "FAILED")
         self.assertIn("order_status_matches", verification["differences"])
+
+    def test_customer_chat_page_and_assets_are_served(self):
+        status, content_type, html = self.get_text("/")
+        self.assertEqual(status, 200)
+        self.assertEqual(content_type, "text/html")
+        self.assertIn("酒店服务助手", html)
+
+        status, content_type, script = self.get_text("/app.js")
+        self.assertEqual(status, 200)
+        self.assertEqual(content_type, "text/javascript")
+        self.assertIn("textContent", script)
+        self.assertNotIn("innerHTML", script)
+
+    def test_customer_conversation_read_and_write_are_owner_scoped(self):
+        self.create_demo_conversation()
+        status, _ = self.post_json(
+            {
+                "sender": "CUSTOMER",
+                "customer_id": "C001",
+                "body": "酒店查不到我的预订",
+            },
+            "/conversations/linked-demo-conversation/messages",
+        )
+        self.assertEqual(status, 200)
+
+        status, projection = self.get_json(
+            "/conversations/linked-demo-conversation?customer_id=C001"
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(projection["messages"][0]["sender"], "CUSTOMER")
+
+        status, response = self.get_json(
+            "/conversations/linked-demo-conversation?customer_id=C002"
+        )
+        self.assertEqual(status, 404)
+        self.assertEqual(response["error"]["code"], "NOT_FOUND")
+
+        status, response = self.post_json(
+            {
+                "sender": "CUSTOMER",
+                "customer_id": "C002",
+                "body": "跨客户写入",
+            },
+            "/conversations/linked-demo-conversation/messages",
+        )
+        self.assertEqual(status, 400)
+        self.assertEqual(response["error"]["code"], "INVALID_CONVERSATION")
+
+    def test_browser_cannot_forge_frontline_sender(self):
+        self.create_demo_conversation()
+
+        status, response = self.post_json(
+            {
+                "sender": "FRONTLINE",
+                "customer_id": "C001",
+                "body": "伪造客服消息",
+            },
+            "/conversations/linked-demo-conversation/messages",
+        )
+
+        self.assertEqual(status, 400)
+        self.assertEqual(response["error"]["code"], "INVALID_REQUEST")
+        status, projection = self.get_json(
+            "/conversations/linked-demo-conversation?customer_id=C001"
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(projection["messages"], [])
+
+    def test_frontline_uses_protected_internal_projection_endpoint(self):
+        self.create_demo_conversation()
+        payload = {
+            "customer_id": "C001",
+            "message_type": "STATUS",
+            "body": "正在查询您的订单",
+        }
+
+        status, denied = self.post_json(
+            payload,
+            "/internal/conversations/linked-demo-conversation/frontline-messages",
+        )
+        self.assertEqual(status, 403)
+        self.assertEqual(denied["error"]["code"], "FORBIDDEN")
+
+        status, denied = self.post_internal(
+            dict(payload, customer_id="C002"),
+            "/internal/conversations/linked-demo-conversation/frontline-messages",
+        )
+        self.assertEqual(status, 400)
+        self.assertEqual(denied["error"]["code"], "INVALID_CONVERSATION")
+
+        status, message = self.post_internal(
+            payload,
+            "/internal/conversations/linked-demo-conversation/frontline-messages",
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(message["sender"], "FRONTLINE")
+
+    def test_reset_clears_conversation_projection(self):
+        self.create_demo_conversation()
+
+        status, response = self.post_json({}, "/reset")
+        self.assertEqual(status, 200)
+        self.assertEqual(response, {"status": "reset"})
+        status, _ = self.get_json(
+            "/conversations/linked-demo-conversation?customer_id=C001"
+        )
+        self.assertEqual(status, 404)
+
+    def test_xss_payload_is_returned_as_plain_message_body(self):
+        self.create_demo_conversation()
+        body = '<img src=x onerror="alert(1)"><script>alert(2)</script>'
+        status, _ = self.post_json(
+            {"sender": "CUSTOMER", "customer_id": "C001", "body": body},
+            "/conversations/linked-demo-conversation/messages",
+        )
+        self.assertEqual(status, 200)
+
+        status, projection = self.get_json(
+            "/conversations/linked-demo-conversation?customer_id=C001"
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(projection["messages"][0]["body"], body)
 
     def test_missing_customer_id_returns_structured_error(self):
         status, response = self.post_json({"clues": {}})

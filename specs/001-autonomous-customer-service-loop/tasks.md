@@ -385,7 +385,7 @@ jq -e '.case_state == "IDENTIFYING_ORDER" and .reopened_count == 1' \
 
 ## Phase 5：Linked Journey 业务内核
 
-### - [ ] T010 [US1] [US2] [US3] 实现连续两轮 Case、双重授权与两次独立核验
+### - [x] T010 [US1] [US2] [US3] 实现连续两轮 Case、双重授权与两次独立核验
 
 **Depends on:** T001～T009；用户确认 Linked Journey Spec 与 Plan
 
@@ -431,7 +431,7 @@ PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover \
 
 ## Phase 6：客户隔离与可录制界面
 
-### - [ ] T011 [US1] [US3] 建立 Customer Chat Facade 与独立消息投影
+### - [x] T011 [US1] [US3] 建立 Customer Chat Facade 与独立消息投影
 
 **Depends on:** T010
 
@@ -467,7 +467,7 @@ PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover \
 
 ---
 
-### - [ ] T012 [P] 规范 Project Room 展示事件与 Demo 埋点
+### - [x] T012 [P] 规范 Project Room 展示事件与 Demo 埋点
 
 **Depends on:** T010
 

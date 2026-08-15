@@ -26,6 +26,9 @@ from golden_path import (  # noqa: E402
     verify_rebooking,
 )
 from run_golden_path import run_golden_path  # noqa: E402
+from case_control import CaseStore  # noqa: E402
+from linked_journey import LinkedJourney  # noqa: E402
+from verification_package import verify_package_hash  # noqa: E402
 
 
 FIXTURE = SERVICE_DIR / "fixtures" / "golden-case.json"
@@ -207,11 +210,11 @@ class GoldenPathTest(unittest.TestCase):
                 risk["risk_decision_id"],
                 "NEEDS-APPROVAL",
             )
-        self.assertEqual(error.exception.code, "HIGH_RISK_EXECUTION_NOT_ENABLED")
+        self.assertEqual(error.exception.code, "INTERNAL_APPROVAL_REQUIRED")
         order = get_order_state(self.store, self.customer_id, plan["order_ref"])
         self.assertEqual(order["status"], "CONFIRMED")
 
-    def test_approved_internal_decision_is_bound_but_does_not_enable_execution(self):
+    def test_approved_internal_decision_requires_customer_confirmation(self):
         plan, risk = self.prepare_plan_and_risk(800)
         decision = record_internal_decision(
             self.store,
@@ -225,31 +228,27 @@ class GoldenPathTest(unittest.TestCase):
         self.assertEqual(decision["decision"], "APPROVE")
         self.assertEqual(decision["case_id"], self.case_id)
         self.assertTrue(decision["recorded_at"])
-        self.assertEqual(
-            validate_execution_authorization(
-                self.store,
-                self.case_id,
-                plan["resolution_plan_id"],
-                risk["risk_decision_id"],
-            ),
-            {
-                "authorized": True,
-                "execution_enabled": False,
-                "risk_decision_id": risk["risk_decision_id"],
-            },
-        )
         with self.assertRaises(ToolError) as error:
-            execute_rebooking(
-                self.store,
-                self.case_id,
-                plan["resolution_plan_id"],
-                risk["risk_decision_id"],
-                "HIGH-RISK-APPROVE",
+            validate_execution_authorization(
+                self.store, self.case_id, plan["resolution_plan_id"], risk["risk_decision_id"]
             )
-        self.assertEqual(error.exception.code, "HIGH_RISK_EXECUTION_NOT_ENABLED")
+        self.assertEqual(error.exception.code, "CUSTOMER_CONFIRMATION_REQUIRED")
+        record_customer_confirmation(
+            self.store, self.case_id, plan["resolution_plan_id"], risk["risk_decision_id"], "MSG-CUSTOMER-APPROVE"
+        )
+        self.assertTrue(validate_execution_authorization(
+            self.store, self.case_id, plan["resolution_plan_id"], risk["risk_decision_id"]
+        )["execution_enabled"])
+        execute_rebooking(
+            self.store,
+            self.case_id,
+            plan["resolution_plan_id"],
+            risk["risk_decision_id"],
+            "HIGH-RISK-APPROVE",
+        )
         self.assertEqual(
             get_order_state(self.store, self.customer_id, plan["order_ref"])["status"],
-            "CONFIRMED",
+            "REBOOKED",
         )
 
     def test_rejected_internal_decision_blocks_authorization_and_conflicts_on_change(self):
@@ -405,6 +404,147 @@ class GoldenPathTest(unittest.TestCase):
                 "SHARED-IDEMPOTENCY-KEY",
             )
         self.assertEqual(error.exception.code, "IDEMPOTENCY_KEY_CONFLICT")
+
+    def _prepare_second_incident(self):
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        store = load_fixture(FIXTURE)
+        journey = LinkedJourney(store, CaseStore(Path(directory.name) / "cases.json"))
+        journey.start("proj-1", "!room-1", "2026-08-14T09:00:00+08:00")
+        journey.link_order(
+            {
+                "hotel_name": "上海虹桥海湾花园酒店",
+                "check_in_date": "2026-08-15",
+            },
+            "2026-08-14T09:01:00+08:00",
+        )
+        first_plan, first_risk = journey.prepare_resolution()
+        journey.route_risk(first_risk, "2026-08-14T09:02:00+08:00")
+        journey.request_customer_confirmation("2026-08-14T09:03:00+08:00")
+        journey.confirm_customer(
+            first_plan,
+            first_risk,
+            "MSG-CUSTOMER-1",
+            "2026-08-14T09:04:00+08:00",
+            "2026-08-14T09:04:00+08:00",
+        )
+        first_execution, first_verification = journey.execute_and_verify(
+            first_plan,
+            first_risk,
+            "CASE-INCIDENT-1",
+            "2026-08-14T09:05:00+08:00",
+        )
+        journey.notify_customer("2026-08-14T09:06:00+08:00")
+        journey.recur_supplier_exception("SUP-EX-002", "2026-08-15T10:00:00+08:00")
+        second_plan, second_risk = journey.prepare_resolution()
+        return (
+            store,
+            journey,
+            (first_plan, first_risk, first_execution, first_verification),
+            (second_plan, second_risk),
+        )
+
+    def test_supplier_recurrence_reopens_same_case_and_room(self):
+        store, _, _, (plan, risk) = self._prepare_second_incident()
+        case = store["cases"][store["case_id"]]
+        self.assertEqual(case["case_id"], store["case_id"])
+        self.assertEqual(case["incident_sequence"], 2)
+        self.assertEqual((case["project_id"], case["project_room_id"]), ("proj-1", "!room-1"))
+        self.assertEqual(plan["evidence_ids"], ["SUP-EX-002"])
+        self.assertEqual(plan["replacement_hotel_id"], "HTL-SHA-RIVERSIDE")
+        self.assertEqual(plan["price_difference_cny"], 800)
+        self.assertEqual(risk["required_controls"], ["INTERNAL_APPROVAL", "CUSTOMER_CONFIRMATION"])
+
+    def test_high_risk_execution_requires_internal_and_customer_confirmation(self):
+        store, journey, _, (plan, risk) = self._prepare_second_incident()
+        journey.route_risk(risk, "2026-08-15T10:01:00+08:00")
+        with self.assertRaises(ToolError) as missing_approval:
+            execute_rebooking(store, journey.case_id, plan["resolution_plan_id"], risk["risk_decision_id"], "CASE-INCIDENT-2")
+        self.assertEqual(missing_approval.exception.code, "INTERNAL_APPROVAL_REQUIRED")
+        journey.approve_internal(
+            plan, risk, "OPS-2", "hotel-operations-demo", "2026-08-15T10:02:00+08:00"
+        )
+        with self.assertRaises(ToolError) as missing_confirmation:
+            execute_rebooking(store, journey.case_id, plan["resolution_plan_id"], risk["risk_decision_id"], "CASE-INCIDENT-2")
+        self.assertEqual(missing_confirmation.exception.code, "CUSTOMER_CONFIRMATION_REQUIRED")
+        journey.request_customer_confirmation("2026-08-15T10:03:00+08:00")
+        journey.confirm_customer(
+            plan,
+            risk,
+            "CUSTOMER-2",
+            "2026-08-15T10:04:00+08:00",
+            "2026-08-15T10:04:00+08:00",
+        )
+        execution, verification = journey.execute_and_verify(
+            plan, risk, "CASE-INCIDENT-2", "2026-08-15T10:05:00+08:00"
+        )
+        self.assertEqual(execution["reported_status"], "SUCCESS")
+        self.assertEqual(verification["verification_status"], "PASSED")
+
+    def test_customer_confirmation_timeout_and_late_resume(self):
+        store, journey, _, (plan, risk) = self._prepare_second_incident()
+        journey.route_risk(risk, "2026-08-15T10:01:00+08:00")
+        journey.approve_internal(
+            plan, risk, "OPS-2", "hotel-operations-demo", "2026-08-15T10:02:00+08:00"
+        )
+        awaiting = journey.request_customer_confirmation("2026-08-15T10:04:00+08:00")
+        self.assertEqual(awaiting["reply_deadline_at"], "2026-08-16T10:04:00+08:00")
+        with self.assertRaisesRegex(ValueError, "deadline has not passed"):
+            journey.timeout_customer_confirmation("2026-08-16T10:03:59+08:00")
+        closed = journey.timeout_customer_confirmation("2026-08-16T10:04:00+08:00")
+        self.assertEqual(closed["case_state"], "CLOSED_INCOMPLETE")
+        reopened = journey.restore_late_confirmation(
+            "2026-08-16T10:05:00+08:00", "2026-08-16T10:05:00+08:00"
+        )
+        self.assertEqual(reopened["case_state"], "AWAITING_CUSTOMER_CONFIRMATION")
+        self.assertEqual((reopened["case_id"], reopened["project_id"], reopened["project_room_id"]), (store["case_id"], "proj-1", "!room-1"))
+        journey.confirm_customer(
+            plan,
+            risk,
+            "CUSTOMER-LATE-2",
+            "2026-08-16T10:05:01+08:00",
+            "2026-08-16T10:05:00+08:00",
+        )
+        execution, verification = journey.execute_and_verify(
+            plan, risk, "CASE-INCIDENT-2-LATE", "2026-08-16T10:06:00+08:00"
+        )
+        self.assertEqual(execution["incident_sequence"], 2)
+        self.assertEqual(verification["verification_status"], "PASSED")
+
+    def test_second_execution_is_idempotent(self):
+        store, journey, _, (plan, risk) = self._prepare_second_incident()
+        journey.route_risk(risk, "2026-08-15T10:01:00+08:00")
+        journey.approve_internal(plan, risk, "OPS-2", "hotel-operations-demo", "2026-08-15T10:02:00+08:00")
+        journey.request_customer_confirmation("2026-08-15T10:03:00+08:00")
+        journey.confirm_customer(plan, risk, "CUSTOMER-2", "2026-08-15T10:04:00+08:00", "2026-08-15T10:04:00+08:00")
+        first, _ = journey.execute_and_verify(plan, risk, "CASE-INCIDENT-2", "2026-08-15T10:05:00+08:00")
+        replay = execute_rebooking(store, journey.case_id, plan["resolution_plan_id"], risk["risk_decision_id"], "CASE-INCIDENT-2")
+        self.assertFalse(first["idempotent_replay"])
+        self.assertTrue(replay["idempotent_replay"])
+        self.assertEqual(len(store["execution_records"]), 2)
+
+    def test_each_execution_requires_independent_verification(self):
+        store, journey, first, (plan, risk) = self._prepare_second_incident()
+        journey.route_risk(risk, "2026-08-15T10:01:00+08:00")
+        journey.approve_internal(plan, risk, "OPS-2", "hotel-operations-demo", "2026-08-15T10:02:00+08:00")
+        journey.request_customer_confirmation("2026-08-15T10:03:00+08:00")
+        journey.confirm_customer(plan, risk, "CUSTOMER-2", "2026-08-15T10:04:00+08:00", "2026-08-15T10:04:00+08:00")
+        _, second_verification = journey.execute_and_verify(
+            plan, risk, "CASE-INCIDENT-2", "2026-08-15T10:05:00+08:00"
+        )
+        packages = list(store["verification_packages"].values())
+        results = list(store["verification_results"].values())
+        self.assertEqual(len(packages), 2)
+        self.assertTrue(all(verify_package_hash(package) for package in packages))
+        self.assertEqual({item["incident_sequence"] for item in packages}, {1, 2})
+        self.assertEqual(len(results), 2)
+        self.assertEqual({item["incident_sequence"] for item in results}, {1, 2})
+        self.assertEqual(first[3]["verification_status"], "PASSED")
+        self.assertEqual(second_verification["verification_status"], "PASSED")
+        self.assertEqual(
+            {item["execution_id"] for item in results},
+            {item["execution_id"] for item in packages},
+        )
 
 
 if __name__ == "__main__":
