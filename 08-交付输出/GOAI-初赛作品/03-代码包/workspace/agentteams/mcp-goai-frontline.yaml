@@ -1,0 +1,50 @@
+server:
+  name: goai-frontline-mcp-server
+  config:
+    accessToken: ""
+
+tools:
+- name: resolve_order_reference
+  description: Safely resolve an order reference in the authenticated customer scope.
+  args:
+  - name: customer_id
+    type: string
+    required: true
+  - name: clues
+    type: object
+    required: true
+    properties:
+      hotel_name:
+        type: string
+      check_in_date:
+        type: string
+  requestTemplate:
+    url: "http://host.docker.internal:19090/resolve-order-reference"
+    method: POST
+    headers:
+    - key: Content-Type
+      value: "application/json"
+    argsToJsonBody: true
+
+- name: record_customer_confirmation
+  description: Bind a customer confirmation event to a frozen plan and risk decision.
+  args:
+  - name: case_id
+    type: string
+    required: true
+  - name: resolution_plan_id
+    type: string
+    required: true
+  - name: risk_decision_id
+    type: string
+    required: true
+  - name: message_event_id
+    type: string
+    required: true
+  requestTemplate:
+    url: "http://host.docker.internal:19090/record-customer-confirmation"
+    method: POST
+    headers:
+    - key: Content-Type
+      value: "application/json"
+    argsToJsonBody: true

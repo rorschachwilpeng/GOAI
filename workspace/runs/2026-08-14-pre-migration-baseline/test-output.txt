@@ -1,0 +1,31 @@
+test_800_cny_difference_requires_internal_approval_and_blocks_write (test_golden_path.GoldenPathTest.test_800_cny_difference_requires_internal_approval_and_blocks_write) ... ok
+test_cross_customer_case_cannot_confirm_another_customers_plan (test_golden_path.GoldenPathTest.test_cross_customer_case_cannot_confirm_another_customers_plan) ... ok
+test_cross_customer_order_reference_is_denied (test_golden_path.GoldenPathTest.test_cross_customer_order_reference_is_denied) ... ok
+test_execute_is_idempotent (test_golden_path.GoldenPathTest.test_execute_is_idempotent) ... ok
+test_false_success_is_caught_by_independent_verification (test_golden_path.GoldenPathTest.test_false_success_is_caught_by_independent_verification) ... ok
+test_golden_path_resolves_and_writes_evidence (test_golden_path.GoldenPathTest.test_golden_path_resolves_and_writes_evidence) ... ok
+test_idempotency_key_cannot_be_reused_for_a_different_request (test_golden_path.GoldenPathTest.test_idempotency_key_cannot_be_reused_for_a_different_request) ... ok
+test_missing_customer_confirmation_blocks_write (test_golden_path.GoldenPathTest.test_missing_customer_confirmation_blocks_write) ... ok
+test_multiple_match_does_not_expose_candidate_details (test_golden_path.GoldenPathTest.test_multiple_match_does_not_expose_candidate_details) ... ok
+test_800_cny_risk_requires_internal_approval (test_http_api.HttpApiTest.test_800_cny_risk_requires_internal_approval) ... ok
+test_authorized_order_rejects_cross_customer_access (test_http_api.HttpApiTest.test_authorized_order_rejects_cross_customer_access) ... ok
+test_chunked_request_returns_multiple (test_http_api.HttpApiTest.test_chunked_request_returns_multiple) ... ok
+test_content_length_above_limit_returns_413 (test_http_api.HttpApiTest.test_content_length_above_limit_returns_413) ... ok
+test_execute_without_confirmation_is_blocked (test_http_api.HttpApiTest.test_execute_without_confirmation_is_blocked) ... ok
+test_false_success_is_detected_through_http (test_http_api.HttpApiTest.test_false_success_is_detected_through_http) ... ok
+test_full_http_write_read_and_verify_path (test_http_api.HttpApiTest.test_full_http_write_read_and_verify_path) ... ok
+test_health (test_http_api.HttpApiTest.test_health) ... ok
+test_idempotency_key_conflict_is_blocked (test_http_api.HttpApiTest.test_idempotency_key_conflict_is_blocked) ... ok
+test_invalid_json_returns_structured_error (test_http_api.HttpApiTest.test_invalid_json_returns_structured_error) ... ok
+test_malformed_chunk_returns_structured_error (test_http_api.HttpApiTest.test_malformed_chunk_returns_structured_error) ... ok
+test_missing_customer_id_returns_structured_error (test_http_api.HttpApiTest.test_missing_customer_id_returns_structured_error) ... ok
+test_multiple_returns_only_count_and_missing_fields (test_http_api.HttpApiTest.test_multiple_returns_only_count_and_missing_fields) ... ok
+test_unique_returns_opaque_reference (test_http_api.HttpApiTest.test_unique_returns_opaque_reference) ... ok
+test_unsupported_transfer_encoding_returns_structured_error (test_http_api.HttpApiTest.test_unsupported_transfer_encoding_returns_structured_error) ... ok
+test_validate_execution_authorization_with_confirmation (test_http_api.HttpApiTest.test_validate_execution_authorization_with_confirmation) ... ok
+test_validate_execution_authorization_without_confirmation_is_blocked (test_http_api.HttpApiTest.test_validate_execution_authorization_without_confirmation_is_blocked) ... ok
+
+----------------------------------------------------------------------
+Ran 26 tests in 0.606s
+
+OK

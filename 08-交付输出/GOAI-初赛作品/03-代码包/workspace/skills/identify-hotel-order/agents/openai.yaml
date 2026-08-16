@@ -1,0 +1,4 @@
+interface:
+  display_name: "Identify Hotel Order"
+  short_description: "Safely match a hotel order and request missing clues"
+  default_prompt: "Use the authenticated customer scope and available clues to safely resolve a hotel order reference."

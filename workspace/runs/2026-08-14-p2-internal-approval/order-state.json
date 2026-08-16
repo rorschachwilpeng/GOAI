@@ -1,0 +1,15 @@
+{
+  "order_id": "H-C001-001",
+  "customer_id": "C001",
+  "hotel_id": "HTL-SHA-GARDEN",
+  "hotel_name": "上海虹桥海湾花园酒店",
+  "check_in_date": "2026-08-15",
+  "check_out_date": "2026-08-17",
+  "room_type": "高级大床房",
+  "hotel_level": 4,
+  "total_price_cny": 1200,
+  "status": "CONFIRMED",
+  "confirmation_number": "CONF-C001-001",
+  "last_idempotency_key": null,
+  "evidence_scope": "post-REJECT synthetic Mock order state"
+}

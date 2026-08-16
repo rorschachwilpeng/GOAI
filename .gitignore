@@ -26,3 +26,6 @@ dist/
 *.log
 .idea/
 .vscode/
+
+# Generated submission preview; the canonical PDF lives in GOAI-初赛作品/01-初赛方案/
+08-交付输出/GOAI-Agent-Infra-初赛方案.pdf

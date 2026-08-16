@@ -1,0 +1,26 @@
+{
+  "task_id": "task-20260812-145800",
+  "verification_status": "PASSED",
+  "order_state": {
+    "order_id": "H-C001-001",
+    "customer_id": "C001",
+    "hotel_id": "HTL-SHA-HARBOR",
+    "hotel_name": "上海虹桥海湾臻选酒店",
+    "check_in_date": "2026-08-15",
+    "check_out_date": "2026-08-17",
+    "total_price_cny": 1380,
+    "status": "REBOOKED",
+    "confirmation_number": "RBK-GOLDEN-001",
+    "last_idempotency_key": "CASE-GOLDEN-001-REBOOK"
+  },
+  "checks": {
+    "target_order_matches": true,
+    "ownership_unchanged": true,
+    "replacement_hotel_matches": true,
+    "stay_dates_match": true,
+    "order_status_matches": true,
+    "confirmation_number_exists": true,
+    "idempotency_key_matches": true
+  },
+  "differences": []
+}

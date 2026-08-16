@@ -1,0 +1,13 @@
+{
+  "bdd_assertions": ["status is REBOOKED", "customer ownership unchanged", "replacement hotel matches plan"],
+  "case_id": "CASE-GOLDEN-002",
+  "customer_id": "C001",
+  "evidence_refs": ["matrix://T006-RUN-003/EXECUTION_RECORD"],
+  "expected_result": {"confirmation_number": "RBK-GOLDEN-002", "customer_id": "C001", "status": "REBOOKED"},
+  "frozen_at": "2026-08-15T00:00:00+08:00",
+  "order_ref": "oref_29b6d09964387d23",
+  "package_id": "VP-CASE-GOLDEN-002-RUN-003",
+  "package_version": "v0.1",
+  "resolution_plan_snapshot": {"expected_current_status": "CONFIRMED", "expected_target_status": "REBOOKED", "price_difference_cny": 180, "replacement_hotel_id": "HTL-SHA-HARBOR", "resolution_plan_id": "RP-C001-002", "risk_decision_id": "RISK-RP-C001-002"},
+  "sha256": "bf275b7af74bb8927af3ef241371958b160ea77c1a58991afd4862a5beb7a2e3"
+}
