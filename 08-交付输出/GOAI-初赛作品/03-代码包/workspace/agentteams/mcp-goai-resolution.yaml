@@ -1,0 +1,183 @@
+---
+server:
+  name: goai-resolution-mcp-server
+  config:
+    accessToken: ''
+tools:
+- name: get_authorized_order
+  description: Read the hotel order, supplier exception evidence, and eligible alternatives
+    only after an opaque order reference has been issued for this customer.
+  args:
+  - name: customer_id
+    description: Trusted customer ID from the authenticated session.
+    type: string
+    required: true
+  - name: order_ref
+    description: Opaque order reference returned by resolve_order_reference.
+    type: string
+    required: true
+  requestTemplate:
+    url: http://host.docker.internal:19090/get-authorized-order
+    method: POST
+    headers:
+    - key: Content-Type
+      value: application/json
+    argsToJsonBody: true
+- name: evaluate_rebooking
+  description: Persist a frozen resolution plan and deterministically decide whether
+    it requires customer confirmation, internal approval, or denial.
+  args:
+  - name: case_id
+    description: Case identifier controlled by the Manager.
+    type: string
+    required: true
+  - name: customer_id
+    description: Trusted customer ID from the authenticated session.
+    type: string
+    required: true
+  - name: order_ref
+    description: Authorized opaque order reference.
+    type: string
+    required: true
+  - name: resolution_plan
+    description: Complete evidence-backed rebooking plan to freeze and evaluate.
+    type: object
+    required: true
+    properties:
+      resolution_plan_id:
+        type: string
+        description: Stable identifier for the frozen plan.
+      order_ref:
+        type: string
+        description: Authorized opaque order reference.
+      order_id:
+        type: string
+        description: Order ID returned by get_authorized_order.
+      action:
+        type: string
+        description: Resolution action; REBOOK for this Golden Case.
+      diagnosis:
+        type: string
+        description: Diagnosis supported by supplier exception evidence.
+      evidence_ids:
+        type: array
+        items:
+          type: string
+        description: Supplier exception evidence identifiers.
+      replacement_hotel_id:
+        type: string
+        description: Selected eligible replacement hotel ID.
+      replacement_hotel_name:
+        type: string
+        description: Selected eligible replacement hotel name.
+      check_in_date:
+        type: string
+        description: Replacement check-in date in YYYY-MM-DD format.
+      check_out_date:
+        type: string
+        description: Replacement check-out date in YYYY-MM-DD format.
+      price_difference_cny:
+        type: number
+        description: Customer price difference in CNY.
+      previous_confirmation_number:
+        type: string
+        description: Confirmation number before execution.
+      expected_current_status:
+        type: string
+        description: Required order status before execution.
+      expected_target_status:
+        type: string
+        description: Expected order status after execution.
+  requestTemplate:
+    url: http://host.docker.internal:19090/evaluate-rebooking
+    method: POST
+    headers:
+    - key: Content-Type
+      value: application/json
+    argsToJsonBody: true
+- name: record_internal_decision
+  description: Record one Hotel Operations APPROVE or REJECT decision bound to the
+    current high-risk Case, resolution plan, and risk decision. Approval does not
+    enable high-risk execution in V0.1.
+  args:
+  - name: case_id
+    description: Case identifier controlled by the Manager.
+    type: string
+    required: true
+  - name: resolution_plan_id
+    description: Frozen high-risk resolution plan identifier.
+    type: string
+    required: true
+  - name: risk_decision_id
+    description: High-risk decision bound to the resolution plan.
+    type: string
+    required: true
+  - name: decision
+    description: Operations decision; APPROVE or REJECT.
+    type: string
+    required: true
+  - name: message_event_id
+    description: Operations Review Room decision message event identifier.
+    type: string
+    required: true
+  - name: operator_id
+    description: Synthetic Hotel Operations operator identifier.
+    type: string
+    required: true
+  requestTemplate:
+    url: http://host.docker.internal:19090/record-internal-decision
+    method: POST
+    headers:
+    - key: Content-Type
+      value: application/json
+    argsToJsonBody: true
+- name: validate_execution_authorization
+  description: Recheck the bound risk decision, required confirmation, and current
+    order state immediately before a rebooking write.
+  args:
+  - name: case_id
+    description: Case identifier controlled by the Manager.
+    type: string
+    required: true
+  - name: resolution_plan_id
+    description: Frozen resolution plan identifier.
+    type: string
+    required: true
+  - name: risk_decision_id
+    description: Risk decision bound to the resolution plan.
+    type: string
+    required: true
+  requestTemplate:
+    url: http://host.docker.internal:19090/validate-execution-authorization
+    method: POST
+    headers:
+    - key: Content-Type
+      value: application/json
+    argsToJsonBody: true
+- name: execute_rebooking
+  description: Execute one controlled Mock rebooking after all authorization checks
+    pass. The idempotency key is permanently bound to this request.
+  args:
+  - name: case_id
+    description: Case identifier controlled by the Manager.
+    type: string
+    required: true
+  - name: resolution_plan_id
+    description: Frozen resolution plan identifier.
+    type: string
+    required: true
+  - name: risk_decision_id
+    description: Risk decision bound to the resolution plan.
+    type: string
+    required: true
+  - name: idempotency_key
+    description: Stable unique key for this Case and rebooking action.
+    type: string
+    required: true
+  requestTemplate:
+    url: http://host.docker.internal:19090/execute-rebooking
+    method: POST
+    headers:
+    - key: Content-Type
+      value: application/json
+    argsToJsonBody: true

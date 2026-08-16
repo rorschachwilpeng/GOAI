@@ -1,0 +1,271 @@
+server:
+  name: goai-order-mcp-server
+  config:
+    accessToken: ""
+
+tools:
+- name: resolve_order_reference
+  description: >-
+    Match a hotel order only within the authenticated customer's scope. Returns
+    NONE, MULTIPLE, or UNIQUE without exposing unauthorized candidate details.
+  args:
+  - name: customer_id
+    description: Trusted customer ID from the authenticated session.
+    type: string
+    required: true
+  - name: clues
+    description: Optional hotel name and check-in date used to narrow the match.
+    type: object
+    required: true
+    properties:
+      hotel_name:
+        type: string
+        description: Hotel name supplied by the customer.
+      check_in_date:
+        type: string
+        description: Check-in date in YYYY-MM-DD format.
+  requestTemplate:
+    url: "http://host.docker.internal:19090/resolve-order-reference"
+    method: POST
+    headers:
+    - key: Content-Type
+      value: "application/json"
+    argsToJsonBody: true
+
+- name: get_authorized_order
+  description: >-
+    Read the hotel order, supplier exception evidence, and eligible alternatives
+    only after an opaque order reference has been issued for this customer.
+  args:
+  - name: customer_id
+    description: Trusted customer ID from the authenticated session.
+    type: string
+    required: true
+  - name: order_ref
+    description: Opaque order reference returned by resolve_order_reference.
+    type: string
+    required: true
+  requestTemplate:
+    url: "http://host.docker.internal:19090/get-authorized-order"
+    method: POST
+    headers:
+    - key: Content-Type
+      value: "application/json"
+    argsToJsonBody: true
+
+- name: evaluate_rebooking
+  description: >-
+    Persist a frozen resolution plan and deterministically decide whether it
+    requires customer confirmation, internal approval, or denial.
+  args:
+  - name: case_id
+    description: Case identifier controlled by the Manager.
+    type: string
+    required: true
+  - name: customer_id
+    description: Trusted customer ID from the authenticated session.
+    type: string
+    required: true
+  - name: order_ref
+    description: Authorized opaque order reference.
+    type: string
+    required: true
+  - name: resolution_plan
+    description: Complete evidence-backed rebooking plan to freeze and evaluate.
+    type: object
+    required: true
+    properties:
+      resolution_plan_id:
+        type: string
+        description: Stable identifier for the frozen plan.
+      order_ref:
+        type: string
+        description: Authorized opaque order reference.
+      order_id:
+        type: string
+        description: Order ID returned by get_authorized_order.
+      action:
+        type: string
+        description: Resolution action; REBOOK for this Golden Case.
+      diagnosis:
+        type: string
+        description: Diagnosis supported by supplier exception evidence.
+      evidence_ids:
+        type: array
+        items:
+          type: string
+        description: Supplier exception evidence identifiers.
+      replacement_hotel_id:
+        type: string
+        description: Selected eligible replacement hotel ID.
+      replacement_hotel_name:
+        type: string
+        description: Selected eligible replacement hotel name.
+      check_in_date:
+        type: string
+        description: Replacement check-in date in YYYY-MM-DD format.
+      check_out_date:
+        type: string
+        description: Replacement check-out date in YYYY-MM-DD format.
+      price_difference_cny:
+        type: number
+        description: Customer price difference in CNY.
+      previous_confirmation_number:
+        type: string
+        description: Confirmation number before execution.
+      expected_current_status:
+        type: string
+        description: Required order status before execution.
+      expected_target_status:
+        type: string
+        description: Expected order status after execution.
+    required:
+    - resolution_plan_id
+    - order_ref
+    - order_id
+    - action
+    - diagnosis
+    - evidence_ids
+    - replacement_hotel_id
+    - replacement_hotel_name
+    - check_in_date
+    - check_out_date
+    - price_difference_cny
+    - previous_confirmation_number
+    - expected_current_status
+    - expected_target_status
+  requestTemplate:
+    url: "http://host.docker.internal:19090/evaluate-rebooking"
+    method: POST
+    headers:
+    - key: Content-Type
+      value: "application/json"
+    argsToJsonBody: true
+
+- name: record_customer_confirmation
+  description: >-
+    Bind a customer confirmation message to one Case, resolution plan, and risk
+    decision. This does not execute the rebooking.
+  args:
+  - name: case_id
+    description: Case identifier controlled by the Manager.
+    type: string
+    required: true
+  - name: resolution_plan_id
+    description: Frozen resolution plan identifier.
+    type: string
+    required: true
+  - name: risk_decision_id
+    description: Risk decision bound to the resolution plan.
+    type: string
+    required: true
+  - name: message_event_id
+    description: Matrix event identifier containing the customer's confirmation.
+    type: string
+    required: true
+  requestTemplate:
+    url: "http://host.docker.internal:19090/record-customer-confirmation"
+    method: POST
+    headers:
+    - key: Content-Type
+      value: "application/json"
+    argsToJsonBody: true
+
+- name: validate_execution_authorization
+  description: >-
+    Recheck the bound risk decision, required confirmation, and current order
+    state immediately before a rebooking write.
+  args:
+  - name: case_id
+    description: Case identifier controlled by the Manager.
+    type: string
+    required: true
+  - name: resolution_plan_id
+    description: Frozen resolution plan identifier.
+    type: string
+    required: true
+  - name: risk_decision_id
+    description: Risk decision bound to the resolution plan.
+    type: string
+    required: true
+  requestTemplate:
+    url: "http://host.docker.internal:19090/validate-execution-authorization"
+    method: POST
+    headers:
+    - key: Content-Type
+      value: "application/json"
+    argsToJsonBody: true
+
+- name: execute_rebooking
+  description: >-
+    Execute one controlled Mock rebooking after all authorization checks pass.
+    The idempotency key is permanently bound to this request.
+  args:
+  - name: case_id
+    description: Case identifier controlled by the Manager.
+    type: string
+    required: true
+  - name: resolution_plan_id
+    description: Frozen resolution plan identifier.
+    type: string
+    required: true
+  - name: risk_decision_id
+    description: Risk decision bound to the resolution plan.
+    type: string
+    required: true
+  - name: idempotency_key
+    description: Stable unique key for this Case and rebooking action.
+    type: string
+    required: true
+  requestTemplate:
+    url: "http://host.docker.internal:19090/execute-rebooking"
+    method: POST
+    headers:
+    - key: Content-Type
+      value: "application/json"
+    argsToJsonBody: true
+
+- name: get_order_state
+  description: >-
+    Independently read the current authorized order state for verification.
+  args:
+  - name: customer_id
+    description: Trusted customer ID from the authenticated session.
+    type: string
+    required: true
+  - name: order_ref
+    description: Authorized opaque order reference.
+    type: string
+    required: true
+  requestTemplate:
+    url: "http://host.docker.internal:19090/get-order-state"
+    method: POST
+    headers:
+    - key: Content-Type
+      value: "application/json"
+    argsToJsonBody: true
+
+- name: verify_rebooking
+  description: >-
+    Compare the persisted resolution plan with an independent order readback and
+    return PASSED or FAILED with every check and difference.
+  args:
+  - name: customer_id
+    description: Trusted customer ID from the authenticated session.
+    type: string
+    required: true
+  - name: resolution_plan_id
+    description: Frozen resolution plan identifier.
+    type: string
+    required: true
+  - name: idempotency_key
+    description: Idempotency key used for the execution being verified.
+    type: string
+    required: true
+  requestTemplate:
+    url: "http://host.docker.internal:19090/verify-rebooking"
+    method: POST
+    headers:
+    - key: Content-Type
+      value: "application/json"
+    argsToJsonBody: true
