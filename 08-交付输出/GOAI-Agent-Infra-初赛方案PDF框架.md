@@ -46,16 +46,18 @@ Plan–Execute–Evaluate 在抽象层定义了 Agent 的责任关系。Room 则
 ### 2.3 Skill 与工具集成｜身份边界如何落实为工具权限
 
 在明确身份与上下文边界后，我们根据Agent的角色定位设计对应的用 Skill。再通过 MCP Gateway 向不同身份暴露不同的 Tool 。
+
 - Agent Identity 决定“谁来做、边界在哪”，
 - Skill 定义“这件事怎么做”，
 - MCP Tool 则负责把动作真正执行下去。
+
 Agent 执行 Skill 时，只能通过 MCP Gateway 调用其身份获准的 Tool。这样一来，MCP Gateway 不只是统一调用入口，还负责身份识别、角色权限、Tool Discovery、输入校验和调用审计。客服 Agent 不能发现订单写入工具，评估 Agent 只能发现只读核验工具，主控 Agent 则不挂载业务 Tool。
 
 | Skill | 身份与调用条件 | 关键 MCP Tool | 输出与失败处理 |
 | --- | --- | --- | --- |
-| `identify-hotel-order` | 客服 Agent（Frontline）；客户报障且订单尚未唯一定位 | `resolve_order_reference`、`record_customer_confirmation` | 输出已授权订单引用或最小补充信息请求；多候选时不返回订单详情 |
-| `investigate-hotel-supply-exception` | 售后 Agent（Resolution）；已获得有效订单引用 | `get_authorized_order`、`evaluate_rebooking`、`validate_execution_authorization`、`execute_rebooking` | 输出异常依据、处理方案、风险结论和受控执行记录；未确认、未审批或前置状态失效时拒绝执行 |
-| `verify-hotel-rebooking` | 评估 Agent（Verification）；已收到完整且冻结的 Verification Package | `get_order_state`、`verify_rebooking` | 输出 PASS / FAIL 与核验依据；只读回查实际订单，不采信执行 Agent 自报结果 |
+| `identify-hotel-order` | 客服 Agent（Frontline）； | `resolve_order_reference`、`record_customer_confirmation` | 输出已授权订单引用或最小补充信息请求；多候选时不返回订单详情 |
+| `investigate-hotel-supply-exception` | 售后 Agent（Resolution） | `get_authorized_order`、`evaluate_rebooking`、`validate_execution_authorization`、`execute_rebooking` | 输出异常依据、处理方案、风险结论和受控执行记录；未确认、未审批或前置状态失效时拒绝执行 |
+| `verify-hotel-rebooking` | 评估 Agent（Verification） | `get_order_state`、`verify_rebooking` | 输出核验依据；只读回查实际订单，不采信执行 Agent 自报结果 |
 
 ### 2.4 可信处置闭环｜审批、核验与留痕
 
@@ -73,14 +75,17 @@ Agent 执行 Skill 时，只能通过 MCP Gateway 调用其身份获准的 Tool�
 
 目前方案构建的系统已经能保存每次处理的状态和过程记录，但这些内容主要用于复核，还不能被再次利用。后续建设将集中在业务知识和风险决策两项能力。
 
-### 3.1 业务数据与知识库
-订单、库存、履约状态和处理记录属于实时业务数据，由业务数据库管理，并通过工具按权限读取。标准作业流程、供应商处理手册和经过审核的历史处置经验将进入检索增强知识库（RAG）。处理问题时，Agent 先取得当前业务事实，再按业务类型、供应商、权限和有效期检索相关经验，检索结果保留来源。处理结束后，只有经过核验和筛选的处理摘要才会进入知识库，避免错误经验被重复使用。
+### 3.1 业务数据库与业务知识库
+
+- 订单、库存、履约状态和处理记录属于实时业务数据，由业务数据库管理，并通过工具按权限读取。
+- 标准作业流程、供应商处理手册和经过审核的历史处置经验将进入检索增强知识库（RAG）。
+
+处理问题时，Agent 先取得当前业务事实，再按业务类型、供应商、权限和有效期检索相关经验，检索结果保留来源。处理结束后，只有经过核验和筛选的处理摘要才会进入知识库，避免错误经验被重复使用。
 
 ### 3.2 可插拔风险规则引擎
 风险判断将从 Agent 指令中拆出，形成独立、可版本管理的规则引擎。
+
 - L1 为查询和解释，由 Agent 自主完成；
 - L2 为低风险、可回退的变更，取得客户确认后执行；
 - L3 为高金额或不可逆操作，需要客户确认和人工审批；
 - L4 为合规冲突或禁止自动化的操作，停止执行并转交人工。
-
-引擎统一返回风险等级、触发原因、允许动作和所需授权；增加新业务时，只需接入新的规则包，不必逐一改写 Agent。
