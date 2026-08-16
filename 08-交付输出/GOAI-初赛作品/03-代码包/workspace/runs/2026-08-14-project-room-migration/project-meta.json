@@ -1,8 +1,0 @@
-{
-  "project_id": "proj-goai-case-golden-001",
-  "title": "GOAI Golden Case 001",
-  "room_id": "!tARkhuXsazrkPWbLfV:matrix-local.agentteams.io:18080",
-  "project_room_id": "!tARkhuXsazrkPWbLfV:matrix-local.agentteams.io:18080",
-  "status": "planning",
-  "workers": ["frontline", "resolution"]
-}
