@@ -404,9 +404,9 @@ class DockerAgentTeamsTransport:
         )
         prompt = (
             f"{self.frontline_matrix_id} [GOAI PROJECT HANDOFF]\n"
-            "Use your assigned Skill's permitted cross-Room handoff. Find the already-assigned "
-            "Case Project Room session with `copaw chats list`, then send exactly the two-line "
-            "message below with `copaw channels send`. Do not add commentary or alter the JSON.\n"
+            "Use your assigned Skill's permitted cross-Room handoff. Send exactly the two-line "
+            f"message below to target session {self.project_room_id} with `copaw channels send`. "
+            "Do not add commentary or alter the JSON.\n"
             f"{body}"
         )
         self.matrix.send_admin(self.frontline_room_id, prompt)
@@ -446,6 +446,54 @@ class DockerAgentTeamsTransport:
             case_id=str(event.get("case_id")),
             timeout_seconds=timeout_seconds,
         )
+
+    def wait_resolution_project_update(
+        self,
+        event: dict[str, Any],
+        *,
+        source_event_id: str,
+        timeout_seconds: float = 90.0,
+    ) -> dict[str, Any]:
+        """Consume Resolution's direct reply to a real Project Room handoff."""
+
+        if event.get("sender_agent") != "RESOLUTION":
+            raise AgentTeamsTransportError("Project update must be authored by Resolution")
+        self._ensure_ready("resolution")
+        source = next(
+            (
+                item
+                for item in self.matrix.recent_messages(self.project_room_id, limit=100)
+                if item.get("event_id") == source_event_id
+            ),
+            None,
+        )
+        if source is None or source.get("sender") not in {
+            self.frontline_matrix_id,
+            "@manager:matrix-local.agentteams.io:18080",
+        }:
+            raise AgentTeamsTransportError(
+                "Resolution Project update requires a real Project Room source event"
+            )
+        result = self.wait_project_event(
+            sender_matrix_id=self.resolution_matrix_id,
+            after_ms=int(source.get("origin_server_ts", 0)),
+            case_id=str(event.get("case_id")),
+            timeout_seconds=timeout_seconds,
+        )
+        payload = result["payload"]
+        for field in (
+            "event_type",
+            "case_id",
+            "incident_sequence",
+            "state",
+            "sender_agent",
+            "receiver",
+        ):
+            if payload.get(field) != event.get(field):
+                raise AgentTeamsTransportError(
+                    f"Resolution Project update conflicts on {field}"
+                )
+        return result
 
     def request_operations_review(self, request: dict[str, Any]) -> dict[str, Any]:
         self._ensure_ready("resolution")

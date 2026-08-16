@@ -91,6 +91,7 @@ class RehearsalController:
         orchestrator: JourneyOrchestrator,
         state_path: str | Path,
         timeout_delay_seconds: float,
+        business_api: Any | None = None,
         restored_state: dict[str, Any] | None = None,
     ) -> None:
         self.projection = projection
@@ -100,6 +101,7 @@ class RehearsalController:
         self.orchestrator = orchestrator
         self.state_path = Path(state_path)
         self.timeout_delay_seconds = timeout_delay_seconds
+        self.business_api = business_api
         state = restored_state or {}
         self.stage = state.get("stage", self.STAGE_IDLE)
         self.processed_message_ids = set(state.get("processed_message_ids", []))
@@ -191,6 +193,22 @@ class RehearsalController:
                 },
                 str(message["occurred_at"]),
             )
+            if self.business_api is not None:
+                remote_match = self.business_api.call_business_tool(
+                    "/resolve-order-reference",
+                    {
+                        "customer_id": self.journey.customer_id,
+                        "clues": {
+                            "hotel_name": "上海虹桥海湾花园酒店",
+                            "check_in_date": "2026-08-15",
+                        },
+                    },
+                )
+                if (
+                    remote_match.get("status") != "UNIQUE"
+                    or remote_match.get("order_ref") != order_ref
+                ):
+                    raise ValueError("Mock API order match conflicts with Case state")
             handoff = _project_event(
                 event_type="ORDER_LINKED",
                 case_id=self.journey.case_id,
@@ -208,6 +226,7 @@ class RehearsalController:
                 frontline_event["matrix_event_id"],
             )
             plan, risk = self.journey.prepare_resolution()
+            self._mirror_resolution(plan, risk)
             self.current_plan_id = plan["resolution_plan_id"]
             self.current_risk_id = risk["risk_decision_id"]
             self.journey.route_risk(risk, _now())
@@ -223,7 +242,7 @@ class RehearsalController:
                 next_action="Request customer confirmation for the current plan.",
                 evidence_ref=f"resolution-plan://{plan['resolution_plan_id']}",
             )
-            resolution_event = self.transport.request_resolution_project_update(
+            resolution_event = self.transport.wait_resolution_project_update(
                 proposal,
                 source_event_id=frontline_event["matrix_event_id"],
             )
@@ -248,6 +267,8 @@ class RehearsalController:
                 str(message["occurred_at"]),
                 str(message["occurred_at"]),
             )
+            self._mirror_customer_confirmation(plan, risk, message)
+            self._mirror_execution(plan, risk, 1)
             _, verification = self.journey.execute_and_prepare_verification(
                 plan,
                 risk,
@@ -272,6 +293,7 @@ class RehearsalController:
             )
             recurrence = self.orchestrator.advance_second_exception("SUP-EX-002", _now())
             plan, risk = self.journey.prepare_resolution()
+            self._mirror_resolution(plan, risk)
             self.current_plan_id = plan["resolution_plan_id"]
             self.current_risk_id = risk["risk_decision_id"]
             self.journey.route_risk(risk, _now())
@@ -286,7 +308,7 @@ class RehearsalController:
                 next_action="Request APPROVE or REJECT from Hotel Operations.",
                 evidence_ref=f"resolution-plan://{plan['resolution_plan_id']}",
             )
-            resolution_event = self.transport.request_resolution_project_update(
+            resolution_event = self.transport.wait_resolution_project_update(
                 proposal,
                 source_event_id=recurrence["matrix_event_id"],
             )
@@ -323,6 +345,8 @@ class RehearsalController:
                 _after(late_at, 1),
                 late_at,
             )
+            self._mirror_customer_confirmation(plan, risk, message)
+            self._mirror_execution(plan, risk, 2)
             _, verification = self.journey.execute_and_prepare_verification(
                 plan,
                 risk,
@@ -375,6 +399,20 @@ class RehearsalController:
             decision["operator_id"],
             _now(),
         )
+        if self.business_api is not None:
+            recorded = self.business_api.call_business_tool(
+                "/record-internal-decision",
+                {
+                    "case_id": self.journey.case_id,
+                    "resolution_plan_id": plan["resolution_plan_id"],
+                    "risk_decision_id": risk["risk_decision_id"],
+                    "decision": decision["decision"],
+                    "message_event_id": decision["message_event_id"],
+                    "operator_id": decision["operator_id"],
+                },
+            )
+            if recorded.get("decision") != "APPROVE":
+                raise ValueError("Mock API did not record Operations approval")
         routed_id = self.bridge.route_operations_approval(
             {
                 "case_id": self.journey.case_id,
@@ -473,6 +511,79 @@ class RehearsalController:
             self.journey.store["resolution_plans"][self.current_plan_id],
             self.journey.store["risk_decisions"][self.current_risk_id],
         )
+
+    def _mirror_resolution(
+        self,
+        plan: dict[str, Any],
+        risk: dict[str, Any],
+    ) -> None:
+        if self.business_api is None:
+            return
+        remote = self.business_api.call_business_tool(
+            "/evaluate-rebooking",
+            {
+                "case_id": self.journey.case_id,
+                "customer_id": self.journey.customer_id,
+                "order_ref": plan["order_ref"],
+                "resolution_plan": plan,
+            },
+        )
+        if (
+            remote.get("risk_decision_id") != risk["risk_decision_id"]
+            or remote.get("decision") != risk["decision"]
+        ):
+            raise ValueError("Mock API risk decision conflicts with Case state")
+
+    def _mirror_customer_confirmation(
+        self,
+        plan: dict[str, Any],
+        risk: dict[str, Any],
+        message: dict[str, Any],
+    ) -> None:
+        if self.business_api is None:
+            return
+        recorded = self.business_api.call_business_tool(
+            "/record-customer-confirmation",
+            {
+                "case_id": self.journey.case_id,
+                "resolution_plan_id": plan["resolution_plan_id"],
+                "risk_decision_id": risk["risk_decision_id"],
+                "message_event_id": str(message["message_id"]),
+            },
+        )
+        if recorded.get("confirmed") is not True:
+            raise ValueError("Mock API did not record Customer confirmation")
+
+    def _mirror_execution(
+        self,
+        plan: dict[str, Any],
+        risk: dict[str, Any],
+        incident_sequence: int,
+    ) -> None:
+        if self.business_api is None:
+            return
+        identifiers = {
+            "case_id": self.journey.case_id,
+            "resolution_plan_id": plan["resolution_plan_id"],
+            "risk_decision_id": risk["risk_decision_id"],
+        }
+        authorization = self.business_api.call_business_tool(
+            "/validate-execution-authorization",
+            identifiers,
+        )
+        if authorization.get("authorized") is not True:
+            raise ValueError("Mock API execution authorization was rejected")
+        execution = self.business_api.call_business_tool(
+            "/execute-rebooking",
+            {
+                **identifiers,
+                "idempotency_key": (
+                    f"{self.journey.case_id}-EXECUTION-{incident_sequence}"
+                ),
+            },
+        )
+        if execution.get("reported_status") != "SUCCESS":
+            raise ValueError("Mock API rebooking did not report success")
 
     def _record_marker(
         self,
@@ -575,6 +686,7 @@ def build_controller(args: argparse.Namespace) -> RehearsalController:
         orchestrator=JourneyOrchestrator(journey, bridge),
         state_path=args.state_path,
         timeout_delay_seconds=args.timeout_delay_seconds,
+        business_api=projection,
         restored_state=restored,
     )
 

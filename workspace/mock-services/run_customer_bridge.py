@@ -30,6 +30,15 @@ DEFAULT_PROJECT_META = (
 
 
 class HttpConversationProjection:
+    BUSINESS_TOOL_PATHS = {
+        "/resolve-order-reference",
+        "/evaluate-rebooking",
+        "/record-customer-confirmation",
+        "/record-internal-decision",
+        "/validate-execution-authorization",
+        "/execute-rebooking",
+    }
+
     def __init__(self, base_url: str, internal_token: str) -> None:
         self.base_url = base_url.rstrip("/")
         self.internal_token = internal_token
@@ -97,6 +106,15 @@ class HttpConversationProjection:
             },
             internal=True,
         )
+
+    def call_business_tool(
+        self,
+        path: str,
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        if path not in self.BUSINESS_TOOL_PATHS:
+            raise ValueError(f"Unsupported rehearsal business Tool path: {path}")
+        return self._request("POST", path, payload)
 
 
 class CustomerBridgeRunner:

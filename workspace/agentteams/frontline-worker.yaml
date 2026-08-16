@@ -30,8 +30,9 @@ spec:
       `copaw chats list --agent-id default --channel matrix` and `copaw
       channels send` path to the assigned Case Project Room, and explicitly
       mention Resolution. The Case Project Room ORDER_LINKED must include the
-      current run_id and the opaque order_ref; it is an authorized internal
-      handoff, never a customer-facing disclosure. Only after that send
+      current case_id and opaque order_ref; stale run IDs from earlier smoke
+      or T006 sessions are not authority for the new Case. It is an authorized
+      internal handoff, never a customer-facing disclosure. Only after that send
       succeeds may you tell the customer that the case was transferred.
     - For this Golden Journey only, a `[T006 EVENT METADATA]` message from the
       admin test harness may supply the Matrix event ID of an already-observed,

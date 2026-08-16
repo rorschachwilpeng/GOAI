@@ -189,6 +189,60 @@ class AgentTeamsTransportTest(unittest.TestCase):
         self.assertEqual(calls[0]["room_id"], "!verification:example.test")
         self.assertNotIn("!project:example.test", json.dumps(calls, default=str))
 
+    def test_resolution_project_update_consumes_direct_project_reply(self):
+        expected = {
+            "event_type": "RESOLUTION_PROPOSED",
+            "case_id": "CASE-SMOKE-DIRECT-001",
+            "incident_sequence": 1,
+            "state": "AWAITING_CUSTOMER_CONFIRMATION",
+            "sender_agent": "RESOLUTION",
+            "receiver": "FRONTLINE",
+        }
+
+        class FakeMatrix:
+            def recent_messages(self, room_id: str, limit: int = 50) -> list[dict]:
+                self_test.assertEqual(room_id, "!project:example.test")
+                return [
+                    {
+                        "event_id": "$frontline-source",
+                        "sender": "@frontline:example.test",
+                        "origin_server_ts": 1000,
+                        "body": "source",
+                    }
+                ]
+
+            def wait_for_message(self, **kwargs: object) -> dict:
+                self_test.assertEqual(kwargs["room_id"], "!project:example.test")
+                self_test.assertEqual(kwargs["sender"], "@resolution:example.test")
+                self_test.assertEqual(kwargs["after_ms"], 1000)
+                body = json.dumps(expected)
+                self_test.assertTrue(kwargs["predicate"](body))
+                return {
+                    "event_id": "$resolution-reply",
+                    "sender": "@resolution:example.test",
+                    "origin_server_ts": 1001,
+                    "body": body,
+                }
+
+        self_test = self
+        transport = DockerAgentTeamsTransport(
+            matrix=FakeMatrix(),
+            frontline_room_id="!frontline:example.test",
+            resolution_room_id="!resolution:example.test",
+            verification_room_id="!verification:example.test",
+            project_room_id="!project:example.test",
+            frontline_matrix_id="@frontline:example.test",
+            resolution_matrix_id="@resolution:example.test",
+        )
+
+        result = transport.wait_resolution_project_update(
+            expected,
+            source_event_id="$frontline-source",
+        )
+
+        self.assertEqual(result["matrix_event_id"], "$resolution-reply")
+        self.assertEqual(result["payload"]["event_type"], "RESOLUTION_PROPOSED")
+
 
 if __name__ == "__main__":
     unittest.main()

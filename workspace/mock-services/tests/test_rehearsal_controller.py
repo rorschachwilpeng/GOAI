@@ -67,6 +67,13 @@ class FakeTransport:
         )
         return {"matrix_event_id": self._event_id("resolution-project"), "payload": event}
 
+    def wait_resolution_project_update(
+        self,
+        event: dict,
+        source_event_id: str,
+    ) -> dict:
+        return self.request_resolution_project_update(event, source_event_id)
+
     def publish_project_event(self, event: dict) -> str:
         self.manager_project_events.append(dict(event))
         return self._event_id("manager-project")
@@ -121,6 +128,38 @@ class FakeTransport:
         return reply
 
 
+class FakeBusinessAPI:
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, dict]] = []
+
+    def call_business_tool(self, path: str, payload: dict) -> dict:
+        self.calls.append((path, dict(payload)))
+        if path == "/resolve-order-reference":
+            return {
+                "status": "UNIQUE",
+                "order_ref": "oref_29b6d09964387d23",
+            }
+        if path == "/evaluate-rebooking":
+            plan = payload["resolution_plan"]
+            decision = (
+                "REQUIRE_CUSTOMER_CONFIRMATION"
+                if plan["price_difference_cny"] == 180
+                else "REQUIRE_INTERNAL_APPROVAL"
+            )
+            return {
+                "risk_decision_id": f"RISK-{plan['resolution_plan_id']}",
+                "decision": decision,
+            }
+        if path == "/record-customer-confirmation":
+            return {"confirmed": True}
+        if path == "/record-internal-decision":
+            return {"decision": payload["decision"]}
+        if path == "/validate-execution-authorization":
+            return {"authorized": True}
+        if path == "/execute-rebooking":
+            return {"reported_status": "SUCCESS"}
+        raise AssertionError(f"Unexpected business path: {path}")
+
 class RehearsalControllerTest(unittest.TestCase):
     def setUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory()
@@ -140,7 +179,12 @@ class RehearsalControllerTest(unittest.TestCase):
     def tearDown(self) -> None:
         self.temporary.cleanup()
 
-    def make_controller(self, *, armed: bool = False) -> RehearsalController:
+    def make_controller(
+        self,
+        *,
+        armed: bool = False,
+        business_api=None,
+    ) -> RehearsalController:
         store = load_fixture(
             Path(__file__).resolve().parents[1] / "fixtures" / "golden-case.json"
         )
@@ -174,6 +218,7 @@ class RehearsalControllerTest(unittest.TestCase):
             orchestrator=JourneyOrchestrator(journey, bridge),
             state_path=self.state_path,
             timeout_delay_seconds=5,
+            business_api=business_api,
         )
 
     def restore_controller(self) -> RehearsalController:
@@ -291,6 +336,20 @@ class RehearsalControllerTest(unittest.TestCase):
                 "CUSTOMER_CONFIRMATION_TIMEOUT",
             },
         )
+
+    def test_complete_journey_mirrors_all_business_writes_to_mock_api(self):
+        business_api = FakeBusinessAPI()
+        controller = self.make_controller(business_api=business_api)
+
+        self.run_complete_journey(controller)
+
+        paths = [path for path, _ in business_api.calls]
+        self.assertEqual(paths.count("/resolve-order-reference"), 1)
+        self.assertEqual(paths.count("/evaluate-rebooking"), 2)
+        self.assertEqual(paths.count("/record-customer-confirmation"), 2)
+        self.assertEqual(paths.count("/record-internal-decision"), 1)
+        self.assertEqual(paths.count("/validate-execution-authorization"), 2)
+        self.assertEqual(paths.count("/execute-rebooking"), 2)
 
     def test_repeated_poll_does_not_process_same_customer_message_twice(self):
         controller = self.make_controller()
